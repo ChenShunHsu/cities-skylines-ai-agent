@@ -1,0 +1,115 @@
+{
+  "mission": {
+    "contractVersion": 1,
+    "missionId": "traffic-observation-01",
+    "instanceId": "fixture-city-instance",
+    "toolContractVersion": "mayor-tools-v1:2ec174d5b30416422eb8183b6839ced0788e7b20131964c9774eff385bd2cc0c",
+    "objectiveCode": "reduce_congestion",
+    "currentStage": "collect_evidence",
+    "successConditions": [
+      {"metric": "trafficFlow", "operator": "gte", "value": 75, "samples": 3}
+    ],
+    "allowedToolNames": ["observe_city", "inspect_traffic"],
+    "forbiddenActions": [
+      "modify_road",
+      "place_service",
+      "place_power",
+      "place_water",
+      "build_network",
+      "build_water",
+      "zone",
+      "change_service_budget",
+      "change_tax",
+      "purchase_area",
+      "change_transport",
+      "bulldoze",
+      "change_building_state",
+      "change_specialization"
+    ],
+    "budgetLimitDisplay": 0,
+    "maxExecutorSteps": 20,
+    "expiresAtGameTime": "2035-06-01T12:00:00",
+    "escalateWhen": [
+      "contract_scope_mismatch",
+      "missing_required_telemetry",
+      "two_no_progress_cycles",
+      "mutation_requires_new_authority",
+      "regression_or_recovery_required",
+      "no_safe_candidate",
+      "expired_contract",
+      "tool_not_allowed",
+      "step_budget_exhausted",
+      "cost_budget_exhausted",
+      "runtime_resource_limit",
+      "malformed_model_output"
+    ]
+  },
+  "controllerContext": {
+    "instanceId": "fixture-city-instance",
+    "toolContractVersion": "mayor-tools-v1:2ec174d5b30416422eb8183b6839ced0788e7b20131964c9774eff385bd2cc0c",
+    "registeredToolNames": ["observe_city", "inspect_traffic"],
+    "gameTime": "2035-06-01T09:00:00",
+    "completedSteps": 7,
+    "spentDisplay": 0
+  },
+  "replayInput": {
+    "stateDelta": {
+      "trafficFlow": 64,
+      "severeRoadCount": 8,
+      "snapshotFresh": true,
+      "segmentLevelEvidencePresent": false
+    },
+    "instruction": "Select the one read-only action needed to obtain segment-level traffic evidence before any plan. Do not repeat the already fresh city snapshot.",
+    "evidenceByTool": {
+      "observe_city": ["city_snapshot"],
+      "inspect_traffic": ["traffic_summary", "affected_segments"]
+    },
+    "remainingSteps": 13,
+    "remainingBudgetDisplay": 0
+  },
+  "action": {
+    "envelopeVersion": 1,
+    "missionId": "traffic-observation-01",
+    "instanceId": "fixture-city-instance",
+    "toolContractVersion": "mayor-tools-v1:2ec174d5b30416422eb8183b6839ced0788e7b20131964c9774eff385bd2cc0c",
+    "step": 8,
+    "decision": "call_tool",
+    "toolName": "inspect_traffic",
+    "arguments": {"limit": 10, "minimumDensity": 160},
+    "expectedEvidence": ["traffic_summary", "affected_segments"],
+    "onMissingEvidence": "escalate",
+    "estimatedCostDisplay": 0
+  },
+  "progress": {
+    "summaryVersion": 1,
+    "missionId": "traffic-observation-01",
+    "instanceId": "fixture-city-instance",
+    "toolContractVersion": "mayor-tools-v1:2ec174d5b30416422eb8183b6839ced0788e7b20131964c9774eff385bd2cc0c",
+    "status": "running",
+    "currentStage": "collect_evidence",
+    "executorSteps": 7,
+    "remainingSteps": 13,
+    "spentDisplay": 0,
+    "remainingBudgetDisplay": 0,
+    "lastDecision": "call_tool",
+    "observations": [
+      {"metric": "trafficFlow", "value": 64, "baseline": 61, "delta": 3}
+    ],
+    "evidenceRefs": ["artifact://traffic-observation-01/result-7"],
+    "noProgressCycles": 0
+  },
+  "escalation": {
+    "summaryVersion": 1,
+    "missionId": "traffic-observation-01",
+    "instanceId": "fixture-city-instance",
+    "toolContractVersion": "mayor-tools-v1:2ec174d5b30416422eb8183b6839ced0788e7b20131964c9774eff385bd2cc0c",
+    "status": "blocked",
+    "executorSteps": 7,
+    "blockerCode": "mutation_requires_new_authority",
+    "before": [{"metric": "trafficFlow", "value": 61}],
+    "after": [{"metric": "trafficFlow", "value": 64}],
+    "attemptedCandidateIds": ["candidate-2", "candidate-5"],
+    "evidenceRefs": ["artifact://traffic-observation-01/result-7"],
+    "decisionNeeded": "grant_new_authority_or_defer"
+  }
+}

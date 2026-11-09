@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ChenShunHsu/cities-skylines-ai-agent/references/mayor-mission-contract-v1.schema.json",
+  "title": "Mayor local executor mission contract v1",
+  "type": "object",
+  "required": [
+    "contractVersion",
+    "missionId",
+    "instanceId",
+    "toolContractVersion",
+    "objectiveCode",
+    "currentStage",
+    "successConditions",
+    "allowedToolNames",
+    "forbiddenActions",
+    "budgetLimitDisplay",
+    "maxExecutorSteps",
+    "expiresAtGameTime",
+    "escalateWhen"
+  ],
+  "properties": {
+    "contractVersion": {"type": "integer", "const": 1},
+    "missionId": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "instanceId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "toolContractVersion": {"type": "string", "minLength": 1, "maxLength": 128},
+    "objectiveCode": {
+      "type": "string",
+      "enum": [
+        "observe_only",
+        "bootstrap_access",
+        "restore_basic_supply",
+        "increase_development_capacity",
+        "improve_service_coverage",
+        "reduce_congestion",
+        "stabilize_finances",
+        "verify_recovery"
+      ]
+    },
+    "currentStage": {
+      "type": "string",
+      "enum": [
+        "collect_evidence",
+        "select_candidate",
+        "preview_candidate",
+        "await_authority",
+        "execute",
+        "settle",
+        "verify",
+        "recover"
+      ]
+    },
+    "successConditions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": ["metric", "operator", "value", "samples"],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "enum": [
+              "population",
+              "cashDisplay",
+              "periodNetDisplay",
+              "trafficFlow",
+              "severeRoadCount",
+              "problemBuildingCount",
+              "unservedElectricityCount",
+              "unservedWaterCount",
+              "unservedSewageCount",
+              "vacantDevelopmentCells",
+              "serviceCoverageRatio"
+            ]
+          },
+          "operator": {"type": "string", "enum": ["gte", "lte", "eq", "delta_gte", "delta_lte"]},
+          "value": {"type": "number"},
+          "samples": {"type": "integer", "minimum": 1, "maximum": 20}
+        },
+        "additionalProperties": false
+      }
+    },
+    "allowedToolNames": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 24,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 128}
+    },
+    "forbiddenActions": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "checkpoint",
+          "simulation_control",
+          "modify_road",
+          "place_service",
+          "place_power",
+          "place_water",
+          "build_network",
+          "build_water",
+          "zone",
+          "change_service_budget",
+          "change_tax",
+          "change_loan",
+          "purchase_area",
+          "change_transport",
+          "bulldoze",
+          "change_building_state",
+          "change_specialization",
+          "save_city",
+          "memory_write"
+        ]
+      }
+    },
+    "budgetLimitDisplay": {"type": "number", "minimum": 0, "maximum": 1000000000},
+    "maxExecutorSteps": {"type": "integer", "minimum": 1, "maximum": 100},
+    "expiresAtGameTime": {"type": "string", "minLength": 10, "maxLength": 40},
+    "escalateWhen": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "contract_scope_mismatch",
+          "missing_required_telemetry",
+          "two_no_progress_cycles",
+          "mutation_requires_new_authority",
+          "regression_or_recovery_required",
+          "no_safe_candidate",
+          "expired_contract",
+          "tool_not_allowed",
+          "step_budget_exhausted",
+          "cost_budget_exhausted",
+          "runtime_resource_limit",
+          "malformed_model_output"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}

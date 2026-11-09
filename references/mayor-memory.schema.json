@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cities Skylines Mayor Memory",
+  "type": "object",
+  "required": [
+    "version",
+    "cityIdentity",
+    "cityVision",
+    "phase",
+    "activeGoals",
+    "recentActions",
+    "blockedGoals",
+    "cooldowns",
+    "lastSnapshot",
+    "updatedAt"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "cityIdentity": {
+      "type": "object",
+      "required": ["instanceId", "name", "map"],
+      "properties": {
+        "instanceId": { "type": "string" },
+        "name": { "type": "string" },
+        "map": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "cityVision": { "type": "string" },
+    "phase": {
+      "type": "string",
+      "enum": ["bootstrap", "early-growth", "service-expansion", "transit-growth", "optimization", "recovery"]
+    },
+    "activeGoals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "objective", "priority", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "objective": { "type": "string" },
+          "metric": { "type": "string" },
+          "target": {},
+          "priority": { "type": "number", "minimum": 0, "maximum": 100 },
+          "status": { "enum": ["active", "waiting", "blocked", "completed", "abandoned"] },
+          "evidence": { "type": "string" },
+          "recheckWhen": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "recentActions": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": ["cycle", "action", "result"],
+        "properties": {
+          "cycle": { "type": "string" },
+          "action": { "type": "string" },
+          "result": { "enum": ["verified", "failed", "rolled-back", "deferred"] },
+          "evidence": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "blockedGoals": { "type": "array", "items": { "type": "object" } },
+    "cooldowns": { "type": "object", "additionalProperties": { "type": "string" } },
+    "financialPolicy": {
+      "type": "object",
+      "properties": {
+        "growthPriority": { "type": "boolean" },
+        "fiscalCooldownMinutes": { "type": "integer", "minimum": 60 },
+        "maxFiscalActionsPerWake": { "type": "integer", "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "lastSnapshot": { "type": "object" },
+    "updatedAt": { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Cities: Skylines 1 Autonomous Mayor"
+  short_description: "Grow and operate a CS1 city across adaptive wake cycles"
+  default_prompt: "Use $cities-skylines1-agent-skill to wake the autonomous mayor, load its memory, inspect the live city, choose evidence-backed goals, execute up to three verified actions, save, and report the next recheck condition."
+policy:
+  allow_implicit_invocation: true

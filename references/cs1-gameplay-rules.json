@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "purpose": "Compact, source-linked CS1 base-game planning rules consumed by deterministic tools. Rules produce hints and pacing limits only; they never authorize a mutation or bypass a gate. Full notes: docs/research/cs1-planning-knowledge-zh-TW.md.",
+  "sources": {
+    "wiki-milestones": "https://skylines.paradoxwikis.com/Milestones",
+    "wiki-economy": "https://skylines.paradoxwikis.com/Economy",
+    "wiki-water": "https://skylines.paradoxwikis.com/Water_and_sewage",
+    "wiki-power": "https://skylines.paradoxwikis.com/Power",
+    "wiki-zoning": "https://skylines.paradoxwikis.com/Zoning",
+    "wiki-zones": "https://skylines.paradoxwikis.com/Zones",
+    "wiki-roads": "https://skylines.paradoxwikis.com/Roads",
+    "wiki-healthcare": "https://skylines.paradoxwikis.com/Healthcare",
+    "steam-early-deficit": "https://steamcommunity.com/app/255710/discussions/0/1732090362063327180",
+    "etcwiki-tips": "https://etcwiki.org/wiki/Cities:_Skylines_-_Tips_and_FAQ",
+    "pmc-roads": "https://cities-skylines.pmctactical.org/cs1/roads.php"
+  },
+  "growthPacing": {
+    "source": ["wiki-zoning", "wiki-healthcare", "steam-early-deficit"],
+    "rationale": "Growables only spawn on vacant zoned cells while demand is positive and residential tax is the main early income, so vacant supply should lead high demand. A per-wake cap keeps zoning in small repeated batches, which avoids the same-age cohorts that cause death waves. Live evidence: with 24-cell targets every new block was absorbed within one ~25-game-day wake while demand stayed at or above 50, so targets were doubled and the cap raised to 4 blocks. Live evidence (~4,500 residents): demand settled at 40-49 in every category while developable vacancy fell to 14/3/1 cells, so growth stalled with positive demand; a 24-cell tier from demand 30 keeps one block of supply ahead of moderate demand. Live evidence (~9,300 residents): with demand 53-60 the 48-cell tier allowed one block per wake, every block was absorbed within that wake (developable vacancy stayed at 26 cells) and population grew ~20 per wake; a 96-cell tier zoned three blocks per wake and growth rose to ~53 per wake with unchanged happiness and traffic.",
+    "highDemandThreshold": 30,
+    "cellsPerBlock": 24,
+    "maximumBlocksPerWake": 4,
+    "vacantTargetTiers": [
+      {"minimumDemand": 85, "targetVacantCells": 144},
+      {"minimumDemand": 70, "targetVacantCells": 96},
+      {"minimumDemand": 50, "targetVacantCells": 96},
+      {"minimumDemand": 30, "targetVacantCells": 24}
+    ]
+  },
+  "utilityBudget": {
+    "source": ["wiki-economy", "steam-early-deficit"],
+    "rationale": "Below 100% a budget B gives service level (B/10)^2 percent; lower an oversupplied utility and raise it again as demand grows.",
+    "minimumBudget": 50,
+    "oversupplyUtilization": 0.25,
+    "requiredHeadroomFactor": 2.0,
+    "budgetedServices": {"electricity": "Electricity", "water": "Water"}
+  },
+  "milestones": {
+    "source": ["wiki-milestones"],
+    "rationale": "Population thresholds vary by map and internal milestone names are not display names, so the next milestone is the first one whose unlock capability is still locked. Early milestones pay a cash bonus and unlock services, so early population growth is the main economic lever.",
+    "progression": [
+      {"name": "Little Hamlet", "unlockCapability": "education", "populationRange": [120, 500], "cashBonusDisplay": 20000, "unlocks": ["loans", "education", "garbage", "healthcare"]},
+      {"name": "Worthy Village", "unlockCapability": "police", "populationRange": [240, 1000], "cashBonusDisplay": 20000, "unlocks": ["districts", "second loan", "police", "fire"]},
+      {"name": "Tiny Town", "unlockCapability": null, "populationRange": [360, 1600], "cashBonusDisplay": 20000, "unlocks": ["parks and plazas", "high school"]},
+      {"name": "Boom Town", "unlockCapability": "bus", "populationRange": [650, 2800], "cashBonusDisplay": 35000, "unlocks": ["bus", "highways", "cemetery", "ore specialization"]}
+    ]
+  },
+  "economy": {
+    "source": ["wiki-economy", "steam-early-deficit"],
+    "defaultTaxPercent": 9,
+    "complaintTaxPercent": 13,
+    "earlyProfitPopulationEstimate": 1000,
+    "earlyProfitConfidence": "community",
+    "deferExpensivePoliciesUntilProfit": ["power saving", "water saving", "smoke detectors"]
+  },
+  "zoning": {
+    "source": ["wiki-zoning", "etcwiki-tips"],
+    "commercialWorkersPerCitizenAtZeroDemand": 0.125,
+    "industrialDemandMeaning": "unemployment",
+    "earlyBlockRatio": {"residential": 5, "industrial": 2, "commercial": 1, "confidence": "community"},
+    "industryResidentialBuffer": "about two city blocks, preferably with trees or offices between"
+  },
+  "roads": {
+    "source": ["wiki-roads", "pmc-roads"],
+    "localStreetPrefabs": ["Gravel Road", "Basic Road"],
+    "upgradeLocalStreetsAtPopulation": 5000,
+    "twoLaneCrossingsHaveNoTrafficLights": true,
+    "arterialAdvice": "few connections, avoid four-way junctions and traffic lights"
+  }
+}

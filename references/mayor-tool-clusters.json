@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "clusters": [
+    {
+      "name": "core",
+      "description": "Small wake-up surface for observation, progression, memory, and pause control.",
+      "tools": [
+        "assess_city",
+        "observe_city",
+        "validate_progression_mode",
+        "set_simulation_speed",
+        "load_mayor_memory",
+        "save_mayor_memory"
+      ]
+    },
+    {
+      "name": "lifecycle",
+      "description": "Mutation checkpoints, regression evidence, simulation control, and verified saves.",
+      "tools": [
+        "validate_progression_mode",
+        "create_checkpoint",
+        "capture_regression_baseline",
+        "verify_regression",
+        "set_simulation_speed",
+        "save_city"
+      ]
+    },
+    {
+      "name": "development",
+      "description": "Spatial growth planning, exact zoning evidence, zoning actions, and district specialization.",
+      "tools": [
+        "inspect_zone_cell_geometry",
+        "inspect_road_layers_3d",
+        "inspect_building_layers_3d",
+        "inspect_building_road_clearance_3d",
+        "inspect_planning_area",
+        "propose_development_plan",
+        "propose_frontage_road",
+        "inspect_growth_capacity",
+        "propose_zoning_blocks",
+        "propose_expansion_areas",
+        "propose_network_crossing",
+        "zone_block",
+        "score_candidates",
+        "inspect_terrain_editing",
+        "preview_district_specialization",
+        "create_district",
+        "set_district_specialization"
+      ]
+    },
+    {
+      "name": "roads",
+      "description": "Road geometry, topology, traffic, native preview, construction, upgrades, and reversal.",
+      "tools": [
+        "inspect_road_layers_3d",
+        "inspect_grade_separated_crossings",
+        "inspect_traffic",
+        "assess_traffic_congestion",
+        "propose_traffic_remedies",
+        "propose_bypass_roads",
+        "inspect_segment_routes",
+        "inspect_road_result",
+        "preview_network",
+        "propose_outside_road_connection",
+        "build_network",
+        "preview_road_upgrade",
+        "upgrade_road",
+        "inspect_building_zoning_support",
+        "repair_building_zoning",
+        "preview_road_reversal",
+        "reverse_road",
+        "split_road_segment",
+        "inspect_junction",
+        "set_junction_control",
+        "trial_junction_control",
+        "widen_road_chain"
+      ]
+    },
+    {
+      "name": "water",
+      "description": "Water-source planning, facility placement, pipe topology, construction, and service coverage.",
+      "tools": [
+        "propose_water_pair_candidates",
+        "propose_groundwater_pump_sites",
+        "inspect_water_pair",
+        "propose_water_service_connection",
+        "preview_water_system_plan",
+        "inspect_water_service_coverage",
+        "inspect_water_network_topology",
+        "connect_water_facility",
+        "place_water_facility",
+        "build_water_pipe",
+        "build_water_service_pipe"
+      ]
+    },
+    {
+      "name": "power",
+      "description": "Electricity coverage, connection planning, power-grid efficiency, and power-plant operation.",
+      "tools": [
+        "inspect_electricity_connection_area",
+        "propose_power_line_connection",
+        "propose_minimal_power_grid",
+        "inspect_power_grid_efficiency",
+        "inspect_electricity_service_coverage",
+        "diagnose_utility_shortfall",
+        "inspect_wind_resource_map",
+        "propose_power_plant_candidates",
+        "preview_power_plant_candidate",
+        "inspect_power_plant_operation",
+        "place_power_plant",
+        "build_network"
+      ]
+    },
+    {
+      "name": "services",
+      "description": "Unlocked assets, service capacity and coverage, placement impact, and facility construction.",
+      "tools": [
+        "inspect_toolbar_unlocks",
+        "inspect_service_coverage",
+        "inspect_service_capacity",
+        "assess_problem_remedies",
+        "inspect_facility_influence",
+        "diagnose_noise",
+        "list_unlocked_assets",
+        "preview_service_impact",
+        "preview_building_candidate",
+        "compare_service_options",
+        "propose_service_sites",
+        "place_service",
+        "rebuild_full_facility"
+      ]
+    },
+    {
+      "name": "transport",
+      "description": "Traffic evidence, public-transport inspection, plan preview, line creation, and line updates.",
+      "tools": [
+        "inspect_traffic",
+        "assess_traffic_congestion",
+        "propose_traffic_remedies",
+        "propose_bypass_roads",
+        "inspect_segment_routes",
+        "inspect_transport",
+        "propose_transit_lines",
+        "preview_transport_plan",
+        "create_transport_line",
+        "set_transport_line",
+        "delete_transport_line"
+      ]
+    },
+    {
+      "name": "economy",
+      "description": "Financial inspection plus bounded service-budget, loan, tax, and map-tile purchase changes.",
+      "tools": [
+        "inspect_economy",
+        "set_service_budget",
+        "take_loan",
+        "set_tax_rate",
+        "purchase_map_area"
+      ]
+    },
+    {
+      "name": "buildings",
+      "description": "Building geometry, placement, demolition impact, and operational-state changes.",
+      "tools": [
+        "inspect_building_layers_3d",
+        "inspect_building_road_clearance_3d",
+        "preview_building_candidate",
+        "preview_bulldoze_impact",
+        "bulldoze_entity",
+        "clear_abandoned_buildings",
+        "preview_operational_change",
+        "set_building_active"
+      ]
+    }
+  ]
+}

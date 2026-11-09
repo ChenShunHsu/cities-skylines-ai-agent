@@ -1,0 +1,2363 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_zone_cell_geometry",
+      "description": "Read one current native zoning block's cell masks, exact XZ footprints, sampled terrain, and bounded nearby road curves/widths. Read-only diagnostic; does not verify growable foundations or authorize zoning. Existing frontage gates remain unchanged.",
+      "parameters": {
+        "type": "object",
+        "required": ["blockId"],
+        "properties": { "blockId": { "type": "integer", "minimum": 1, "maximum": 65535 } },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "assess_city",
+      "description": "Read a live city snapshot and return a compact, deterministic health and growth brief with ranked inspection objectives, explicit unknowns and measurable success conditions. Read-only; never authorizes construction or resuming an unverified mutation. Supply the previous brief's baseline to compare the same city at later simulation time.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "previousSnapshot": { "type": "object", "description": "Previous assess_city baseline or full mayor snapshot from this city." },
+          "reserveDisplay": { "type": "number", "minimum": 0, "default": 10000 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_economy",
+      "description": "Read detailed city cash, service income/expenses and loans. Money values from this endpoint are raw internal hundredths; divide by 100 for display. Inspection alone does not justify a fiscal mutation.",
+      "parameters": { "type": "object", "properties": {}, "additionalProperties": false }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "observe_city",
+      "description": "Read one compact, non-mutating mayor wake-up snapshot including progression, health, demand, education, traffic, anomalies, resources, and attention signals. Cash includes raw internal values and display values converted at 100 internal units per displayed currency unit.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "detailLimit": { "type": "integer", "minimum": 0, "maximum": 50, "default": 10 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_road_layers_3d",
+      "description": "Build an offline layered 3D road model from a captured city snapshot. Returns sampled XYZ curves, terrain-relative height, native prefab structure type, vertical bounds, and one-way or bidirectional classification without requiring the game to be running.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "snapshotPath": { "type": "string", "default": "", "description": "Explicit snapshot for offline-only analysis. When omitted while the Bridge is live, capture the current city; any snapshot from another live city instance is rejected." },
+          "segmentIds": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "maxItems": 5000
+          },
+          "sampleCount": { "type": "integer", "minimum": 3, "maximum": 65, "default": 9 },
+          "limit": { "type": "integer", "minimum": 0, "maximum": 5000, "default": 500 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_grade_separated_crossings",
+      "description": "Analyze offline road-curve crossings in XYZ. Distinguishes bridge/tunnel/elevated grade separation from unconnected same-grade crossings by interpolating each road's height at the exact XZ crossing point.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "snapshotPath": { "type": "string", "default": "", "description": "Explicit snapshot for offline-only analysis. When omitted while the Bridge is live, capture the current city; any snapshot from another live city instance is rejected." },
+          "segmentIds": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "maxItems": 5000
+          },
+          "sampleCount": { "type": "integer", "minimum": 3, "maximum": 65, "default": 9 },
+          "gradeSeparationThreshold": { "type": "number", "minimum": 0.5, "maximum": 32, "default": 4 },
+          "relation": {
+            "type": "string",
+            "enum": ["", "AGradeSeparatedAboveB", "BGradeSeparatedAboveA", "UnconnectedSameGradeCrossing"],
+            "default": ""
+          },
+          "limit": { "type": "integer", "minimum": 0, "maximum": 5000, "default": 500 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_building_layers_3d",
+      "description": "Build an offline lightweight 3D building model from native CS1 dimensions: oriented footprint corners, XYZ position, model and collision height, and vertical bounds. No meshes, textures, screenshots, or images are stored.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "snapshotPath": { "type": "string", "default": "", "description": "Explicit snapshot for offline-only analysis. When omitted while the Bridge is live, capture the current city; any snapshot from another live city instance is rejected." },
+          "buildingIds": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "maxItems": 5000
+          },
+          "service": { "type": "string", "default": "" },
+          "includeOriginal": { "type": "boolean", "default": true },
+          "includeRoadStructures": { "type": "boolean", "default": true },
+          "includeNetworkHelpers": { "type": "boolean", "default": true },
+          "limit": { "type": "integer", "minimum": 0, "maximum": 5000, "default": 500 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_building_road_clearance_3d",
+      "description": "Intersect lightweight oriented building footprints with native 3D road curves and distinguish a safe road above or below a building from a true vertical conflict.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "snapshotPath": { "type": "string", "default": "", "description": "Explicit snapshot for offline-only analysis. When omitted while the Bridge is live, capture the current city; any snapshot from another live city instance is rejected." },
+          "buildingIds": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "maxItems": 5000
+          },
+          "segmentIds": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "maxItems": 5000
+          },
+          "service": { "type": "string", "default": "" },
+          "includeOriginal": { "type": "boolean", "default": false },
+          "includeRoadStructures": { "type": "boolean", "default": false },
+          "includeNetworkHelpers": { "type": "boolean", "default": false },
+          "sampleCount": { "type": "integer", "minimum": 3, "maximum": 65, "default": 17 },
+          "roadHalfHeight": { "type": "number", "minimum": 0, "maximum": 16, "default": 2 },
+          "relation": {
+            "type": "string",
+            "enum": ["", "RoadBelowBuilding", "RoadAboveBuilding", "VerticalConflict"],
+            "default": ""
+          },
+          "limit": { "type": "integer", "minimum": 0, "maximum": 5000, "default": 500 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_planning_area",
+      "description": "Read a compact offline 3D planning neighborhood around an exact XZ center. Summarizes terrain, resources, utility coverage, road layers, buildings, demand, and ranked evidence-backed terrain samples without claiming that any sample is an approved construction coordinate.",
+      "parameters": {
+        "type": "object",
+        "required": ["center"],
+        "properties": {
+          "snapshotPath": { "type": "string", "default": "", "description": "Explicit snapshot for offline-only analysis. When omitted while the Bridge is live, capture the current city; any snapshot from another live city instance is rejected." },
+          "center": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "radius": { "type": "number", "minimum": 32, "maximum": 1920, "default": 256 },
+          "intendedUse": {
+            "type": "string",
+            "enum": ["Mixed", "Residential", "Commercial", "Industrial", "SpecializedIndustry", "Service", "Utility", "Road"],
+            "default": "Mixed"
+          },
+          "sampleCount": { "type": "integer", "minimum": 3, "maximum": 65, "default": 9 },
+          "maxFeatures": { "type": "integer", "minimum": 0, "maximum": 100, "default": 20 },
+          "candidateLimit": { "type": "integer", "minimum": 0, "maximum": 100, "default": 12 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_frontage_road",
+      "description": "Plan bounded road extensions from live dead-end roads that add development frontage without turning the anchor into a corner. Each candidate bends 8-35 degrees from the existing road, which keeps the anchor under the 45-degree corner limit and avoids native MoveMiddleNode. Static gates check unlocked area, separation from other roads, residential/industrial separation and previous failures before native preview and the same settlement acceptance used for road planning. Planning only; build one candidate with the normal road mutation protocol.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "intendedZone": { "type": "string", "enum": ["Residential", "Commercial", "Industrial"], "default": "Residential" },
+          "center": { "type": "object", "required": ["x", "z"], "properties": { "x": { "type": "number" }, "z": { "type": "number" } }, "additionalProperties": false },
+          "radius": { "type": "number", "minimum": 32, "maximum": 1920, "default": 512 },
+          "roadPrefab": { "type": "string", "default": "" },
+          "maxPreviews": { "type": "integer", "minimum": 1, "maximum": 96, "default": 24 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 5 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_development_plan",
+      "description": "Generate ranked, non-mutating development alternatives from a compact offline 3D neighborhood. Residential and industrial proposals apply reciprocal, geometry-derived footprint separation to both samples and whole exact blocks. With a current live capture, local-street candidates are also bounded, native-previewed, and rejected when their construction cost would cross the configured cash reserve. Plans remain planning-only until exact zoning frontage, checkpoint, regression and settled verification pass.",
+      "parameters": {
+        "type": "object",
+        "required": ["center"],
+        "properties": {
+          "snapshotPath": { "type": "string", "default": "", "description": "Explicit snapshot for offline-only analysis. When omitted while the Bridge is live, capture the current city; any snapshot from another live city instance is rejected." },
+          "center": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "radius": { "type": "number", "minimum": 32, "maximum": 1920, "default": 256 },
+          "intendedUse": {
+            "type": "string",
+            "enum": ["Mixed", "Residential", "Commercial", "Industrial", "SpecializedIndustry", "Service", "Utility", "Road"],
+            "default": "Mixed"
+          },
+          "sampleCount": { "type": "integer", "minimum": 3, "maximum": 65, "default": 9 },
+          "maxFeatures": { "type": "integer", "minimum": 0, "maximum": 100, "default": 12 },
+          "maxPlans": { "type": "integer", "minimum": 0, "maximum": 10, "default": 3 },
+          "roadPrefab": { "type": "string", "default": "", "description": "Optional unlocked road prefab for live local-street previews. When omitted, each plan reuses the geometry-derived source road prefab." },
+          "roadPreviewLimit": { "type": "integer", "minimum": 0, "maximum": 24, "default": 12 },
+          "reserveDisplay": { "type": "number", "minimum": 0, "default": 10000, "description": "Reject a live native-valid road candidate when its displayed construction cost would leave less than this cash reserve." }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "validate_progression_mode",
+      "description": "Hard-gate city mutations by rejecting obvious Unlock All, Unlimited Money, developer, or stale test-save progression signals.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_toolbar_unlocks",
+      "description": "Compare UnlockManager, ToolsModifierControl, and the actual GameMainToolbar button enabled, visible, and interactive states. Use after a create-pass road and before relying on newly unlocked zoning, electricity, water, or service construction.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_service_coverage",
+      "description": "Read the live geographic coverage grid for one service inside explicit map bounds.",
+      "parameters": {
+        "type": "object",
+        "required": ["service", "minX", "minZ", "maxX", "maxZ"],
+        "properties": {
+          "service": { "type": "string" },
+          "minX": { "type": "number" },
+          "minZ": { "type": "number" },
+          "maxX": { "type": "number" },
+          "maxZ": { "type": "number" },
+          "resolution": { "type": "integer", "minimum": 2, "maximum": 64, "default": 12 },
+          "lowCoverageThreshold": { "type": "integer", "minimum": 0, "maximum": 255, "default": 32 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_service_capacity",
+      "description": "Read current used capacity, total capacity, utilization, and active facility count for one service.",
+      "parameters": {
+        "type": "object",
+        "required": ["service"],
+        "properties": {
+          "service": {
+            "type": "string",
+            "enum": ["Electricity", "Water", "Sewage", "Garbage", "HealthCare", "DeathCare", "PoliceDepartment", "EducationElementary", "EducationHighSchool", "EducationUniversity"]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_facility_influence",
+      "description": "Read existing facilities' native service and noise source parameters, including radius, accumulation, bounds, and live resource value at the source. Use inspect_service_coverage for the actual propagated geographic field.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "buildingId": { "type": "integer", "minimum": 0, "maximum": 65535, "default": 0 },
+          "service": { "type": "string", "default": "" },
+          "includeInactive": { "type": "boolean", "default": false },
+          "limit": { "type": "integer", "minimum": 0, "maximum": 5000, "default": 500 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_growth_capacity",
+      "description": "Read demand, per-zone occupied and vacant valid capacity, an explicit growth-pacing recommendation, actionable fully-unzoned road-generated blocks with clear occupancy masks, bounded exact frontage-rejection diagnostics, and zoning anomalies before planning physical growth. High demand alone never authorizes expansion.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 0, "maximum": 200, "default": 20 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_zoning_blocks",
+      "description": "Unzoned, buildable blocks along roads that reach an outside connection (a road leading nowhere is never zoned: buildings would grow there cut off) that suit one use (residential, commercial, workplace for industry, or office), with the reason, the neighbourhood's preferred use first, then nearest to developed land. A block takes its neighbourhood's use within hard rules: homes keep 240m from industry and twice the pollution radius from polluting facilities, industry keeps 240m from homes unless it extends an industrial district, offices may take land homes may not for industry's nearness outside an industrial district, and shops go on arterial or through-road frontage, at arterial corners, in the buffer between industry and homes, or where homes have none within 250m. Planned areas passed in plan override the neighbourhood. Read-only; zone with zone_block.",
+      "parameters": {
+        "type": "object",
+        "required": ["use"],
+        "properties": {
+          "use": { "type": "string", "enum": ["residential", "commercial", "workplace", "office"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 10 },
+          "plan": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["minX", "maxX", "minZ", "maxZ"],
+              "properties": {
+                "minX": { "type": "number" }, "maxX": { "type": "number" },
+                "minZ": { "type": "number" }, "maxZ": { "type": "number" },
+                "kind": { "type": "string", "enum": ["residential", "commercial", "workplace"], "description": "The use of blocks inside; without it the neighbourhood decides." },
+                "layout": { "type": "string", "enum": ["fishbone", "grid", "corridor", "ring", "industrial"] },
+                "crossTo": { "type": "boolean", "description": "Reach this land next, over water if it lies beyond (the loop's bridge and bridgehead)." }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_expansion_areas",
+      "description": "Free land in the unlocked map tiles that the city can grow into when no unzoned block is left: connected samples that are dry, flat enough for streets (slope at most 0.08) and clear of networks and buildings. Each area reports its size, centre, extent and long axis, the uses its surroundings allow (same rules as propose_zoning_blocks; plan overrides), the ways in from the nearest local road nodes with what each straight approach crosses (a ground-level railway or highway needs a grade separation, water a bridge), and a fishbone layout (collector heading and segment count along the long axis, branch length). Areas reachable without crossing come first. Read-only; build the access and fishbone with build_network. Each area also ranks road layouts for its shape, slope and use (fishbone, grid, corridor, ring, industrial) with the reason; a plan rectangle may name the layout.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "use": { "type": "string", "enum": ["residential", "commercial", "workplace"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
+          "minimumAreaSquareMeters": { "type": "number", "minimum": 0, "default": 40000 },
+          "resolution": { "type": "integer", "minimum": 16, "maximum": 64, "default": 64 },
+          "includePoints": { "type": "boolean", "default": false, "description": "Return each area's free sample points (a layout graph keeps its nodes on them)." },
+          "plan": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["minX", "maxX", "minZ", "maxZ"],
+              "properties": {
+                "minX": { "type": "number" }, "maxX": { "type": "number" },
+                "minZ": { "type": "number" }, "maxZ": { "type": "number" },
+                "kind": { "type": "string", "enum": ["residential", "commercial", "workplace"], "description": "The use of blocks inside; without it the neighbourhood decides." },
+                "layout": { "type": "string", "enum": ["fishbone", "grid", "corridor", "ring", "industrial"] },
+                "crossTo": { "type": "boolean", "description": "Reach this land next, over water if it lies beyond (the loop's bridge and bridgehead)." }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_network_crossing",
+      "description": "Overpasses that carry a new road from start over the first ground railway, highway or road on the straight way to target. The Bridge builds a road between two points without cutting a junction into what it crosses, so crossing at grade is not possible; an overpass is three pieces: a ramp up to 10m no steeper than 20%, a level piece over the barrier, and a ramp down on the far side. A start close to the barrier ramps up alongside it first. Every piece of each candidate is previewed natively with an elevated prefab; valid candidates come first. Read-only; build the pieces in order with build_network passing each piece's height offsets.",
+      "parameters": {
+        "type": "object",
+        "required": ["start", "target"],
+        "properties": {
+          "start": { "type": "object", "required": ["x", "z"], "properties": { "x": { "type": "number" }, "z": { "type": "number" } }, "additionalProperties": false },
+          "target": { "type": "object", "required": ["x", "z"], "properties": { "x": { "type": "number" }, "z": { "type": "number" } }, "additionalProperties": false },
+          "roadPrefab": { "type": "string", "default": "Basic Road Elevated" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_traffic",
+      "description": "Read the worst live road traffic segments and citywide flow before proposing road or transit changes.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 0, "maximum": 500, "default": 20 },
+          "minimumDensity": { "type": "integer", "minimum": 0, "maximum": 255, "default": 160 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "assess_traffic_congestion",
+      "description": "Detect congestion: citywide flow ratio plus hotspots, which group congested road segments that share nodes (vehicles never reroute around a queue, so neighbours queue together). Each hotspot lists its toggleable junctions as trial_junction_control candidates, its busiest segment for inspect_segment_routes, and its same-width upgrade candidates for widen_road_chain once junction trials are spent. status is congested when flow is under flowRatioTarget or any hotspot remains.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "minimumDensity": { "type": "integer", "minimum": 1, "maximum": 255, "default": 90 },
+          "flowRatioTarget": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.85 },
+          "minimumHotspotSegments": { "type": "integer", "minimum": 1, "maximum": 100, "default": 3 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 5 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_traffic_remedies",
+      "description": "Diagnose each congestion hotspot from the route evidence of its busiest segment and rank the kinds of remedy it supports: relieveDownstream (the dominant exit is itself saturated, so the queue spills back: its far junction and onward upgradeable roads are given), cargoRail (cargo trucks dominate), transit (passenger cars dominate on local roads), bypass (most trips pass through), junctionControl and widen (the queue forms at the hotspot), interchange (highways or ramps make up most of the hotspot with no downstream cause). Each hotspot reports vehicle shares by kind, the dominant exit with its density and share, through and external trip shares, and top destinations. Read-only; apply a remedy with its own tool and measure the hotspot afterwards.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_bypass_roads",
+      "description": "Connector roads that open a route around each congestion hotspot. With the hotspot's segments and its dominant exit removed from the local road graph, each demand runs from a local road where traffic enters the hotspot to one of its in-city destination cells; a demand that already has a route around gets no connector. A candidate joins an existing node reachable from the entry to one that reaches the destination with a road up to maxLength, ranked by vehicles served, then by the detour it leaves against the straight line. Each is cut into pieces under 100m with slightly bent joints, and every piece is previewed natively (terrain, buildings under the road, power lines, collinear merge risk). Read-only; build the pieces in order with build_network and measure the hotspot afterwards.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 },
+          "candidateLimit": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 },
+          "maxLength": { "type": "number", "minimum": 30, "maximum": 400, "default": 250 },
+          "roadPrefab": { "type": "string", "default": "Basic Road" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "assess_problem_remedies",
+      "description": "Every problem currently reported on buildings, each with the remedy that removes it, so no problem is ignored: service problems (Death, Garbage, Crime, Fire, Sick) list the affected building clusters with their nearest working facility and the full facilities of that family to rebuild; utility, bulldoze, road-split, reactivation and economy problems name their lever; names without a mapping come back in unmapped for the agent to decide. Severity flags (MajorProblem, FatalProblem) are counted per problem, not listed as problems.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "clusterLinkMeters": { "type": "number", "minimum": 50, "maximum": 1000, "default": 250 },
+          "clusterLimit": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "compare_service_options",
+      "description": "Rank every unlocked building that provides one service family (garbage, deathcare, healthcare, eldercare, childcare, police, fire, education, power; elementary, highSchool and university are education by school level) for the need that binds: coverage (buildings beyond reach), capacity (within reach but the problem persists), fillsUp (facilities of the family keep filling, so prefer ones that process instead of store), or power. Each option reports its native AI roles (radius, vehicles, people served, storage, processing, power), cost, upkeep, footprint, pollution and noise radii. Without a deficit the ranking is the need's ratio per upkeep; with one (radius in metres for coverage, units of the need otherwise) each option is costed as the buildings it takes plus siteCost for every extra site. Options above the budget (default: current cash) rank last. Use before place_service instead of always building the basic option.",
+      "parameters": {
+        "type": "object",
+        "required": ["family", "need"],
+        "properties": {
+          "family": { "type": "string", "enum": ["garbage", "deathcare", "healthcare", "eldercare", "childcare", "police", "fire", "education", "elementary", "highSchool", "university", "power"] },
+          "need": { "type": "string", "enum": ["coverage", "capacity", "fillsUp", "power"] },
+          "deficit": { "type": "number", "minimum": 0 },
+          "siteCost": { "type": "number", "minimum": 0, "default": 0 },
+          "budget": { "type": "number", "minimum": 0 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 6 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_service_sites",
+      "description": "Road-facing sites for one service building near a point, cheapest displacement first. A site may cover growables (abandoned cost 0, homes 2, others 1) because built-up districts rarely have a free lot; it never covers a service building or road and keeps native road access. Bulldoze the covered growables after their preview_bulldoze_impact, then place_service at the site's position and angle. A building that emits ground pollution (landfill, incinerator) gets no site with a home within residentialClearance, by default twice its native pollution radius, so search a wider radius for one.",
+      "parameters": {
+        "type": "object",
+        "required": ["buildingPrefab", "near"],
+        "properties": {
+          "buildingPrefab": { "type": "string", "minLength": 1 },
+          "near": { "type": "object", "required": ["x", "z"], "properties": { "x": { "type": "number" }, "z": { "type": "number" } }, "additionalProperties": false },
+          "radius": { "type": "number", "minimum": 50, "maximum": 3000, "default": 600 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
+          "residentialClearance": { "type": "number", "minimum": 0, "maximum": 1000 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_segment_routes",
+      "description": "Native Traffic Routes view for one road segment: vehicles whose remaining path uses it, by vehicle AI, travel direction, entry and exit segments, origin and destination cells, and the top origin-destination cell pairs. Vehicles plan the fastest route at trip start and never reroute around congestion, so use this before upgrading, bypassing, or changing junctions.",
+      "parameters": {
+        "type": "object",
+        "required": ["segmentId"],
+        "properties": {
+          "segmentId": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 10 },
+          "vehicleAI": { "type": "string", "maxLength": 64, "description": "Count only this vehicle AI, e.g. PassengerCarAI for trips transit could take over" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_road_result",
+        "description": "Perform focused post-build road QA for the returned segment ID using live native Bezier curves, terrain, XYZ coordinates, structure classification, lane directionality, endpoint connectivity, anomalies, and outside connectivity. Geometry evidence separates raw native clearance from the legacy node-inset proxy; that proxy is conservative acceptance policy, not a calibrated physical surface model. No map coordinates are retained or assumed.",
+      "parameters": {
+        "type": "object",
+        "required": ["segmentId"],
+        "properties": {
+          "segmentId": { "type": "integer", "minimum": 1 },
+          "includeDeadEnds": { "type": "boolean", "default": true },
+          "allowTerminalDeadEnd": {
+            "type": "boolean",
+            "default": false,
+            "description": "Accept exactly one intentional terminal dead-end while retaining all other road anomaly checks."
+          },
+          "terminalNodeId": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Required with allowTerminalDeadEnd and must equal this segment's planned terminal endpoint."
+          },
+          "outsideAccessRequirement": {
+            "type": "string",
+            "enum": ["two-way", "inbound", "outbound"],
+            "default": "two-way",
+            "description": "Use inbound/outbound only for a planned intermediate bidirectional road with an explicit terminal dead-end. Requires the selected live directed outside path and a connected opposite anchor. Full two-way checks remain reported separately; an intermediate pass does not complete the entrance or authorize zoning."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_transport",
+      "description": "Read transport lines plus bounded line and station anomalies before modifying public transport.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 0, "maximum": 256, "default": 50 },
+          "maxStopDistance": { "type": "number", "minimum": 8, "maximum": 2048, "default": 96 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_transit_lines",
+      "description": "Bus line proposals for the car trips that load congested roads. For each hotspot's busiest segment it reads remaining passenger-car paths (service vehicles excluded), keeps origin-destination cell pairs farther apart than minimumTripMeters (shorter trips walk), merges both directions, routes the busiest pairs over local roads (no highways) with stops every stopSpacing metres, and previews each as a round-trip bus line. Reports each hotspot's passenger-car share and the weekly ridership of existing lines, because a corridor an existing line already serves needs more vehicles or a faster route rather than a twin. Measure hotspot density and the new line's weeklyPassengers after creating one.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hotspotLimit": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 },
+          "corridorLimit": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 },
+          "minimumTripMeters": { "type": "number", "minimum": 200, "maximum": 5000, "default": 900 },
+          "stopSpacing": { "type": "number", "minimum": 150, "maximum": 1000, "default": 350 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_unlocked_assets",
+      "description": "List currently loaded and unlocked road, network, or building prefabs, optionally filtered by service.",
+      "parameters": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["roads", "networks", "buildings"] },
+          "service": { "type": "string", "default": "" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "preview_service_impact",
+      "description": "Estimate resident and residential coverage gains for an unlocked healthcare, school, fire, police, or deathcare facility without mutating the city.",
+      "parameters": {
+        "type": "object",
+        "required": ["buildingPrefab", "position"],
+        "properties": {
+          "buildingPrefab": { "type": "string" },
+          "position": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "angleDegrees": { "type": "number", "default": 0 },
+          "requireRoadAccess": { "type": "boolean", "default": true },
+          "lowCoverageThreshold": { "type": "integer", "minimum": 0, "maximum": 255, "default": 32 },
+          "limit": { "type": "integer", "minimum": 0, "maximum": 500, "default": 100 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "preview_network",
+      "description": "Validate an exact road or utility network candidate without mutation. Ground-road previews include a sampled terrain profile and reject floating, sunken, abrupt, or excessive cut/fill alignments. A caller may request a bounded 0–0.3m terrain-fit lift for a new ground-road endpoint; existing and hypothetical planning nodes cannot be moved. Power-line previews reject newly created pylon endpoints within 24m of any road centerline, road node, or junction.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "roadPrefab",
+          "start",
+          "end"
+        ],
+        "properties": {
+          "roadPrefab": {
+            "type": "string"
+          },
+          "start": {
+            "$ref": "#/$defs/point"
+          },
+          "end": {
+            "$ref": "#/$defs/point"
+          },
+          "name": {
+            "type": "string",
+            "default": ""
+          },
+          "startTerrainFitLift": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 0.3,
+            "description": "Explicit bounded lift for a new ground-road start endpoint. Rejected for an existing or planning node."
+          },
+          "endTerrainFitLift": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 0.3,
+            "description": "Explicit bounded lift for a new ground-road end endpoint. Rejected for an existing or planning node."
+          },
+          "startHeightOffset": {
+            "type": "number",
+            "minimum": -64,
+            "maximum": 64,
+            "description": "Elevation above terrain for the start of an elevated, bridge, slope or tunnel prefab (negative is underground). Ground roads reject non-zero offsets; a reused node keeps its own height."
+          },
+          "endHeightOffset": {
+            "type": "number",
+            "minimum": -64,
+            "maximum": 64,
+            "description": "Elevation above terrain for the end of an elevated, bridge, slope or tunnel prefab. A start and end offset that differ form a ramp for a grade-separated crossing."
+          },
+          "planningStartY": {
+            "type": "number",
+            "description": "Read-only hypothetical shared node height from the preceding corridor preview. Must remain within the native terrain-seeded fit range. Not construction authorization."
+          },
+          "planningEndY": {
+            "type": "number",
+            "description": "Read-only hypothetical shared node height from the preceding corridor preview. Must remain within the native terrain-seeded fit range. Not construction authorization."
+          }
+        },
+        "$defs": {
+          "point": {
+            "type": "object",
+            "required": [
+              "x",
+              "z"
+            ],
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "z": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_outside_road_connection",
+      "description": "Plan a complete connected outside-access corridor from live directed terminals, broad plus terminal-local terrain samples, owned tiles and the requested loaded prefab's native planning width. Uses a sparse rotation-invariant motion lattice, reverse goal skeletons and final-edge priority; close terminal pairs are allowed while every segment still enforces its minimum length. Only return one construction step when a full conditional route passes native previews. Future junctions remain unverified and require full replanning after every settled build. Failure history, native geometry/terrain/topology gates, the 0.12m preview clearance threshold and a 10000 display reserve remain mandatory. Never mutates the city or authorizes construction. Revalidates a saved city-scoped route first. Uses one total preview/time budget, a per-call cache, source provenance, candidate-stream counters, queued/popped goal diagnostics and persistent structured progress. Budget exhaustion preserves an unproven root cause and requires a discriminating next check rather than an unchanged retry.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "roadPrefab"
+        ],
+        "properties": {
+          "roadPrefab": {
+            "type": "string"
+          },
+          "maxTerminalSeparation": {
+            "type": "number",
+            "minimum": 16,
+            "maximum": 512,
+            "default": 256
+          },
+          "mergeOffsets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "type": "number",
+              "minimum": 48,
+              "maximum": 512
+            },
+            "default": [
+              64,
+              96,
+              128,
+              160,
+              192,
+              224
+            ],
+            "description": "Deprecated compatibility input; terrain corridor search does not use fixed merge offsets."
+          },
+          "lateralOffsets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 9,
+            "items": {
+              "type": "number",
+              "minimum": -256,
+              "maximum": 256
+            },
+            "default": [
+              0,
+              -32,
+              32,
+              -64,
+              64,
+              -96,
+              96
+            ],
+            "description": "Deprecated compatibility input; terrain corridor search does not use fixed lateral offsets."
+          },
+          "settlementTerrainReserve": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 0.9,
+            "default": 0.7,
+            "description": "Reserve part of the road-to-terrain deviation budget for native post-build junction and terrain settlement differences."
+          },
+          "maxNativePreviews": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 192,
+            "default": 96,
+            "description": "Total native preview budget shared by all anchor pairs and both orientations."
+          },
+          "maxPlanningSeconds": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 60,
+            "default": 30,
+            "description": "Stop issuing previews after this elapsed time; an in-flight request can still take its transport timeout."
+          },
+          "hintOnly": {
+            "type": "boolean",
+            "default": false,
+            "description": "Revalidate a saved city-scoped corridor only. If stale or rejected, return diagnostics without starting a broad search."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_water_pair_candidates",
+      "description": "Find exact, native-valid intake and sewage outlet candidates on feasible buildable shorelines in the currently unlocked map. Samples live hydrology, follows the connected moving-water reach, measures upstream and downstream extremes from role-specific candidates that pass native facility preview, previews terrain and production, and returns only a pair that passes inspect_water_pair. Failed searches report the complete attempted-pair count and rejection distribution while returning only a bounded sample of attempts. With serviceAreaAnchor, the pair is sought near that town instead, so its pipes stay short.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "intakePrefab": { "type": "string", "default": "Water Intake" },
+          "outletPrefab": { "type": "string", "default": "Water Outlet" },
+          "resolution": { "type": "integer", "minimum": 16, "maximum": 64, "default": 48 },
+          "maxCandidatesPerRole": { "type": "integer", "minimum": 1, "maximum": 8, "default": 4 },
+          "minSeparation": { "type": "number", "minimum": 64, "default": 256 },
+          "minDownstreamProjection": { "type": "number", "minimum": 32, "default": 128 },
+          "minFlowSpeed": { "type": "number", "minimum": 0.01, "default": 0.1 },
+          "minFlowAgreement": { "type": "number", "minimum": -1, "maximum": 1, "default": 0.35 },
+          "maxUpstreamGap": { "type": "number", "minimum": 0, "default": 128 },
+          "maxDownstreamGap": { "type": "number", "minimum": 0, "default": 128 },
+          "serviceAreaAnchor": { "type": "object", "properties": { "x": { "type": "number" }, "z": { "type": "number" } }, "required": ["x", "z"], "description": "The town the pair serves: the intake is sought on the nearest shore upstream of it and the outlet on the nearest shore downstream (each at least half of minSeparation along the flow from it), instead of at the far ends of the unlocked river." },
+          "minWaterDepth": { "type": "number", "minimum": 0, "default": 2, "description": "Only water at least this deep (metres) counts as river: shallow edges recede as the river settles." }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_groundwater_pump_sites",
+      "description": "Free land near a town for a groundwater pump (a water tower), nearest first, for a town no river pair can serve (propose_water_pair_candidates finds no safe pair: the unlocked shore is too short to keep an outlet downstream of an intake). Each site is native-valid on its own lot, draws clean ground water, keeps every home outside its noise radius and stays 300m from industry, land zoned for it and facilities that pollute the ground. Pass a site as the intake of inspect_water_pair, place_water_facility and the water-system plan tools: a groundwater pump is checked for clean ground instead of river flow, and its outlet for a valid productive shore.",
+      "parameters": {
+        "type": "object",
+        "required": ["serviceAreaAnchor"],
+        "properties": {
+          "serviceAreaAnchor": { "type": "object", "properties": { "x": { "type": "number" }, "z": { "type": "number" } }, "required": ["x", "z"] },
+          "buildingPrefab": { "type": "string", "description": "Default: the cheapest unlocked groundwater pump." },
+          "searchRadius": { "type": "number", "minimum": 64, "maximum": 2000, "default": 640 },
+          "minDistance": { "type": "number", "minimum": 0, "maximum": 1500, "default": 0, "description": "Leave this much room from the anchor: a pump beside the town leaves no room for the pipes to part at a junction." },
+          "spacing": { "type": "number", "minimum": 16, "maximum": 128, "default": 48 },
+          "maxPreviewAttempts": { "type": "integer", "minimum": 1, "maximum": 256, "default": 96 },
+          "maxResults": { "type": "integer", "minimum": 1, "maximum": 8, "default": 3 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_water_pair",
+      "description": "Validate an intake/outlet pair before placement using real water-side locations, live velocity, pollution, game-native production, and the connected moving-water reach across all currently unlocked tiles. Upstream and downstream extremes are recomputed from role-specific shoreline candidates that pass native facility preview, so geometrically feasible but unbuildable shore samples cannot create an impossible gate. Reject dead water, upstream outlets, polluted intakes, and candidates far from those native-valid extremes.",
+      "parameters": {
+        "type": "object",
+        "required": ["intake", "outlet"],
+        "properties": {
+          "intake": { "$ref": "#/$defs/facilityCandidate" },
+          "outlet": { "$ref": "#/$defs/facilityCandidate" },
+          "minSeparation": { "type": "number", "minimum": 64, "default": 256 },
+          "minDownstreamProjection": { "type": "number", "minimum": 32, "default": 128 },
+          "samplePadding": { "type": "number", "minimum": 16, "maximum": 512, "default": 64 },
+          "resolution": { "type": "integer", "minimum": 8, "maximum": 64, "default": 24 },
+          "checkUnlockedReach": { "type": "boolean", "default": true },
+          "unlockedReachResolution": { "type": "integer", "minimum": 16, "maximum": 64, "default": 48 },
+          "minFlowSpeed": { "type": "number", "minimum": 0.01, "default": 0.1 },
+          "minUnlockedFlowAgreement": { "type": "number", "minimum": -1, "maximum": 1, "default": 0.5 },
+          "maxUpstreamGap": { "type": "number", "minimum": 0, "default": 128 },
+          "maxDownstreamGap": { "type": "number", "minimum": 0, "default": 128 }
+        },
+        "$defs": {
+          "point": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "facilityCandidate": {
+            "type": "object",
+            "required": ["buildingPrefab", "position", "angleDegrees"],
+            "properties": {
+              "buildingPrefab": { "type": "string" },
+              "buildingId": { "type": "integer", "minimum": 0 },
+              "position": { "$ref": "#/$defs/point" },
+              "angleDegrees": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_water_service_connection",
+      "description": "Plan a native-previewed Water branch from a real node in an already verified intake/outlet/shared-trunk component to exact live buildings that still lack water or sewage. The branch visits every target position, splits long legs, fails closed on truncated topology or coverage inventories, and never rebuilds or weakens the original complete-system proof. Planning only; build returned segments in order with a fresh checkpoint and replan after every accepted segment.",
+      "parameters": {
+        "type": "object",
+        "required": ["intakeBuildingId", "outletBuildingId", "targetBuildingIds"],
+        "properties": {
+          "intakeBuildingId": { "type": "integer", "minimum": 1 },
+          "outletBuildingId": { "type": "integer", "minimum": 1 },
+          "targetBuildingIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": { "type": "integer", "minimum": 1 }
+          },
+          "pipePrefab": { "type": "string", "default": "Water Pipe" },
+          "maxWaterPipeSegmentLength": { "type": "number", "minimum": 32, "maximum": 192, "default": 160 },
+          "maxPreviewAttempts": { "type": "integer", "minimum": 1, "maximum": 512, "default": 96 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "preview_water_system_plan",
+      "description": "Validate the complete base-game water system before any pipe mutation. This combines upstream/downstream hydrology, pollution, facility production, a separate intake branch, a separate outlet branch, a shared trunk extending toward the serviced city area, and native preview of every proposed pipe segment. A safe plan requires at least three segments and a three-way junction; intake and outlet may never be joined directly.",
+      "parameters": {
+        "type": "object",
+        "required": ["intake", "outlet", "pipePrefab", "segments", "serviceAreaAnchor"],
+        "properties": {
+          "intake": { "$ref": "#/$defs/facilityCandidate" },
+          "outlet": { "$ref": "#/$defs/facilityCandidate" },
+          "pipePrefab": { "type": "string" },
+          "segments": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 32,
+            "items": { "$ref": "#/$defs/pipeSegment" }
+          },
+          "serviceAreaAnchor": { "$ref": "#/$defs/point" },
+          "nodeTolerance": { "type": "number", "minimum": 0.25, "maximum": 8, "default": 2 },
+          "maxFacilityPipeDistance": { "type": "number", "minimum": 8, "maximum": 128, "default": 64 },
+          "serviceAnchorTolerance": { "type": "number", "minimum": 2, "maximum": 64, "default": 16 },
+          "minSeparation": { "type": "number", "minimum": 64, "default": 256 },
+          "minDownstreamProjection": { "type": "number", "minimum": 32, "default": 128 },
+          "samplePadding": { "type": "number", "minimum": 16, "maximum": 512, "default": 64 },
+          "resolution": { "type": "integer", "minimum": 8, "maximum": 64, "default": 24 },
+          "checkUnlockedReach": { "type": "boolean", "default": true },
+          "unlockedReachResolution": { "type": "integer", "minimum": 16, "maximum": 64, "default": 48 },
+          "minFlowSpeed": { "type": "number", "minimum": 0.01, "default": 0.1 },
+          "minUnlockedFlowAgreement": { "type": "number", "minimum": -1, "maximum": 1, "default": 0.5 },
+          "maxUpstreamGap": { "type": "number", "minimum": 0, "default": 128 },
+          "maxDownstreamGap": { "type": "number", "minimum": 0, "default": 128 }
+        },
+        "$defs": {
+          "point": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "facilityCandidate": {
+            "type": "object",
+            "required": ["buildingPrefab", "position", "angleDegrees"],
+            "properties": {
+              "buildingPrefab": { "type": "string" },
+              "buildingId": { "type": "integer", "minimum": 0 },
+              "position": { "$ref": "#/$defs/point" },
+              "angleDegrees": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "pipeSegment": {
+            "type": "object",
+            "required": ["role", "start", "end"],
+            "properties": {
+              "role": { "type": "string", "enum": ["intakeBranch", "outletBranch", "sharedTrunk"] },
+              "start": { "$ref": "#/$defs/point" },
+              "end": { "$ref": "#/$defs/point" },
+              "name": { "type": "string", "default": "" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_water_service_coverage",
+      "description": "Use the game's native building water demand and CheckWater result to list exact buildings missing water, sewage service, or receiving polluted water. Buildings such as electricity poles with zero water demand are excluded by default.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 0, "maximum": 5000, "default": 500 },
+          "service": { "type": "string", "default": "" },
+          "includeCovered": { "type": "boolean", "default": false },
+          "includeNoDemand": { "type": "boolean", "default": false }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_electricity_connection_area",
+      "description": "Read a building's native ElectricityGridRadius and sample the surrounding ElectricityManager conductivity and powered states separately. This exposes the blue connection area without opening the electricity info view or moving the mouse.",
+      "parameters": {
+        "type": "object",
+        "required": ["buildingId"],
+        "properties": {
+          "buildingId": { "type": "integer", "minimum": 1 },
+          "padding": { "type": "number", "minimum": 32, "maximum": 1920, "default": 512 },
+          "resolution": { "type": "integer", "minimum": 8, "maximum": 128, "default": 48 },
+          "maxResults": { "type": "integer", "minimum": 1, "maximum": 128, "default": 16 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_power_line_connection",
+      "description": "Find and native-preview a power-line segment from an already powered electricity area into the target building's native blue connection radius. Target endpoints must be conductive and outside the target footprint; the complete corridor must avoid every current live building's oriented footprint plus 4m before native preview, and truncated building inventories fail closed. It distinguishes conductivity from actual power and returns no mutation when the building is already powered.",
+      "parameters": {
+        "type": "object",
+        "required": ["buildingId"],
+        "properties": {
+          "buildingId": { "type": "integer", "minimum": 1 },
+          "powerLinePrefab": { "type": "string", "default": "Power Line" },
+          "padding": { "type": "number", "minimum": 32, "maximum": 1920, "default": 512 },
+          "resolution": { "type": "integer", "minimum": 8, "maximum": 128, "default": 48 },
+          "maximumLineLength": { "type": "number", "minimum": 8, "maximum": 1920, "default": 1000 },
+          "maxPreviewAttempts": { "type": "integer", "minimum": 1, "maximum": 512, "default": 96 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_minimal_power_grid",
+      "description": "Plan a compact power-line tree across one generating building and multiple facility or growable-building blue electricity regions. Native-radius overlaps require no line; remaining region pairs must avoid every current live building's oriented footprint plus 4m, with truncated building inventories failing closed. Eligible pairs are ordered with Kruskal's minimum-spanning-tree logic and every returned segment passes the game's native network preview. This tool plans only; build each segment in returned order with its own checkpoint and focused electricity verification.",
+      "parameters": {
+        "type": "object",
+        "required": ["sourceBuildingId", "buildingIds"],
+        "properties": {
+          "sourceBuildingId": { "type": "integer", "minimum": 1 },
+          "buildingIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": { "type": "integer", "minimum": 1 }
+          },
+          "powerLinePrefab": { "type": "string", "default": "Power Line" },
+          "padding": { "type": "number", "minimum": 32, "maximum": 1920, "default": 512 },
+          "resolution": { "type": "integer", "minimum": 8, "maximum": 128, "default": 48 },
+          "maximumLineLength": { "type": "number", "minimum": 8, "maximum": 1920, "default": 1920 },
+          "maxPreviewAttemptsPerEdge": { "type": "integer", "minimum": 1, "maximum": 512, "default": 96 },
+          "maxTotalPreviewAttempts": { "type": "integer", "minimum": 1, "maximum": 2048, "default": 512 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_power_grid_efficiency",
+      "description": "Rank the longest existing power-line segments for checkpointed simplification experiments. This tool never declares a graph cut safe by itself because CS1 can bridge electricity through building blue conductivity areas; every candidate requires one-at-a-time removal, simulation settlement, exact coverage checks, and checkpoint recovery on failure.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "maxCandidates": { "type": "integer", "minimum": 1, "maximum": 32, "default": 12 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_electricity_service_coverage",
+      "description": "Use each prefab's native electricity demand and ElectricityManager.CheckElectricity result to list exact buildings missing power. Zero-demand helpers such as electricity poles are excluded by default.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 0, "maximum": 5000, "default": 500 },
+          "service": { "type": "string", "default": "" },
+          "includeCovered": { "type": "boolean", "default": false },
+          "includeNoDemand": { "type": "boolean", "default": false }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "diagnose_utility_shortfall",
+      "description": "Explain why buildings lack power or water, checking both causes every time: buildings within the network's reach yet given nothing (the supply is short: generation, capacity or a trimmed budget, which no line or pipe fixes) and buildings beyond its reach (a line or pipe is missing). Power: powered ground within 64m of the building, or most of the city dark (a deep shortage leaves no powered ground beside anything). Water: a pipe within the game's 95m service reach, and whether its joints carry water and sewage. The game counts only delivered supply as used, so a short supply can read well below capacity.",
+      "parameters": {
+        "type": "object",
+        "required": ["service"],
+        "properties": {
+          "service": { "type": "string", "enum": ["electricity", "water"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 64, "default": 12 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "diagnose_noise",
+      "description": "List homes the game marks noisy, each with the live noise where it stands and what makes it: a facility whose native noise radius reaches it (a wind turbine, a fire station), industry within 96m, or the arterial or highway it fronts within 48m. Sources are named, not summed, because each has its own remedy (move the facility or zone no homes in its radius; a commercial or park buffer; traffic off home streets or the frontage rezoned).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 64, "default": 16 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_wind_resource_map",
+      "description": "Directly sample the game's native WeatherManager wind resource at fixed world coordinates without moving the mouse, opening an info view, taking screenshots, or placing a turbine. Returns the strongest samples within the requested square.",
+      "parameters": {
+        "type": "object",
+        "required": ["center"],
+        "properties": {
+          "center": { "$ref": "#/$defs/point" },
+          "radius": { "type": "number", "minimum": 32, "maximum": 10000, "default": 640 },
+          "resolution": { "type": "integer", "minimum": 2, "maximum": 128, "default": 32 },
+          "unlockedOnly": { "type": "boolean", "default": true },
+          "maxResults": { "type": "integer", "minimum": 1, "maximum": 128, "default": 12 }
+        },
+        "$defs": {
+          "point": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_power_plant_candidates",
+      "description": "Find exact native-valid power-plant sites near a service-area anchor. The tool reads BuildingAI road requirements automatically; fuel plants use road-edge positions whose native sidewalk access point reaches a ground vehicle lane, then verify output, residential exposure, and two-way outside freight reachability.",
+      "parameters": {
+        "type": "object",
+        "required": ["buildingPrefab", "serviceAreaAnchor"],
+        "properties": {
+          "buildingPrefab": { "type": "string" },
+          "serviceAreaAnchor": { "$ref": "#/$defs/point" },
+          "searchRadius": { "type": "number", "minimum": 64, "maximum": 1920, "default": 640 },
+          "resolution": { "type": "integer", "minimum": 16, "maximum": 64, "default": 32 },
+          "maxPreviewAttempts": { "type": "integer", "minimum": 1, "maximum": 256, "default": 64 },
+          "maxResults": { "type": "integer", "minimum": 1, "maximum": 16, "default": 5 },
+          "plannedUseBuffer": { "type": "number", "minimum": 0, "maximum": 512, "default": 128 },
+          "minimumVariableOutputRatio": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.75 },
+          "maximumResidentialNoiseExposure": { "type": "integer", "minimum": 0, "default": 0 },
+          "maximumResidentialPollutionExposure": { "type": "integer", "minimum": 0, "default": 0 },
+          "maximumFuelRouteDistance": { "type": "number", "minimum": 128, "default": 5000 },
+          "maximumFuelRouteTrafficDensity": { "type": "integer", "minimum": 0, "maximum": 255, "default": 200 },
+          "requireRoadAccess": { "type": "boolean", "default": false, "description": "Optionally require road access for a normally road-independent plant. Native BuildingAI requirements, including fuel plants, are always enforced." },
+          "maxRoadDistance": { "type": "number", "minimum": 0, "maximum": 512, "default": 64 },
+          "avoidAreas": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "required": ["center", "radius"],
+              "properties": {
+                "name": { "type": "string", "default": "" },
+                "center": { "$ref": "#/$defs/point" },
+                "radius": { "type": "number", "minimum": 0, "maximum": 1024 }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "$defs": {
+          "point": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "preview_power_plant_candidate",
+      "description": "Validate a base-game power-plant candidate with native location-dependent production, capacity, noise and ground-pollution exposure, exact BuildingAI sidewalk-to-ground-vehicle-lane access, and two-way fuel freight reachability.",
+      "parameters": {
+        "type": "object",
+        "required": ["buildingPrefab", "position"],
+        "properties": {
+          "buildingPrefab": { "type": "string" },
+          "buildingId": { "type": "integer", "minimum": 0 },
+          "position": { "$ref": "#/$defs/point" },
+          "angleDegrees": { "type": "number", "default": 0 },
+          "minimumVariableOutputRatio": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.75 },
+          "maximumResidentialNoiseExposure": { "type": "integer", "minimum": 0, "default": 0 },
+          "maximumResidentialPollutionExposure": { "type": "integer", "minimum": 0, "default": 0 },
+          "maximumFuelRouteDistance": { "type": "number", "minimum": 128, "default": 5000 },
+          "maximumFuelRouteTrafficDensity": { "type": "integer", "minimum": 0, "maximum": 255, "default": 200 },
+          "requireRoadAccess": { "type": "boolean", "default": false, "description": "Optionally require road access for a normally road-independent plant. Native BuildingAI road requirements are always enforced." },
+          "maxRoadDistance": { "type": "number", "minimum": 0, "maximum": 512, "default": 64 }
+        },
+        "$defs": {
+          "point": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_power_plant_operation",
+      "description": "Verify an existing power plant after simulation settlement. Re-check native output and environmental placement, fuel-road reachability, live building problems, production state, and the native fuel buffer ratio.",
+      "parameters": {
+        "type": "object",
+        "required": ["buildingId"],
+        "properties": {
+          "buildingId": { "type": "integer", "minimum": 1 },
+          "minimumFuelBufferRatio": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.15 },
+          "minimumVariableOutputRatio": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.75 },
+          "maximumResidentialNoiseExposure": { "type": "integer", "minimum": 0, "default": 0 },
+          "maximumResidentialPollutionExposure": { "type": "integer", "minimum": 0, "default": 0 },
+          "maximumFuelRouteDistance": { "type": "number", "minimum": 128, "default": 5000 },
+          "maximumFuelRouteTrafficDensity": { "type": "integer", "minimum": 0, "maximum": 255, "default": 200 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "preview_road_upgrade",
+      "description": "Run the game-native compatibility check and cost preview before changing an existing road prefab.",
+      "parameters": {
+        "type": "object",
+        "required": ["segmentId", "roadPrefab"],
+        "properties": {
+          "segmentId": { "type": "integer", "minimum": 1 },
+          "roadPrefab": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "upgrade_road",
+      "description": "Upgrade one road after native compatibility preview and a verified checkpoint. The upgrade rebuilds the segment's zone blocks, so growables near it are checked with native Building.CheckZoning; unzoned cells under a building's own footprint are restored to its zone, and the result fails (restore the checkpoint before resuming the simulation) if any growable is still unsupported.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "segmentId", "roadPrefab"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "segmentId": { "type": "integer", "minimum": 1 },
+          "roadPrefab": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_building_zoning_support",
+      "description": "List growables within a radius that would fail native Building.CheckZoning (a footprint cell without a valid, unshared cell of the building's zone), which the simulation demolishes. Read-only; reports repairable unzoned cells per building.",
+      "parameters": {
+        "type": "object",
+        "required": ["x", "z"],
+        "properties": {
+          "x": { "type": "number" },
+          "z": { "type": "number" },
+          "radius": { "type": "number", "minimum": 8, "maximum": 1920, "default": 128 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 64 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "repair_building_zoning",
+      "description": "Restore the zoning under one growable that fails native Building.CheckZoning: only valid, unshared, unzoned cells inside its own footprint are set to its zone. Requires a verified checkpoint; fails if the footprint is still unsupported.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "buildingId"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "buildingId": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "preview_road_reversal",
+      "description": "Preview the current and proposed one-way inversion state before reversing a road. The drawing direction is the traffic direction for one-way roads.",
+      "parameters": {
+        "type": "object",
+        "required": ["segmentId"],
+        "properties": {
+          "segmentId": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "reverse_road",
+      "description": "Reverse one road segment after a verified checkpoint. Inspect road topology, lane directions, service reachability, and outside connectivity after mutation.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "segmentId"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "segmentId": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "split_road_segment",
+      "description": "Split one road segment longer than 160m into the fewest pieces of at most 160m after a verified checkpoint, cutting on the zone-cell grid and keeping its name, flags and zoning. Vehicles cannot find buildings near the middle of a longer segment (they report RoadAccessFailed); road anomalies list such segments as overlongRoadSegment. Restores zoning the split disturbed, or fails so the checkpoint can be restored.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "segmentId"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "segmentId": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_junction",
+      "description": "Read one road junction's base-game junction settings: traffic lights, whether the game allows toggling them or stop signs there, and each connected road end's stop sign, density, and heading.",
+      "parameters": {
+        "type": "object",
+        "required": ["nodeId"],
+        "properties": {
+          "nodeId": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_junction_control",
+      "description": "Change one base-game junction setting after a verified checkpoint: traffic lights on or off at a junction, or a stop sign on one road end (segmentId) at a junction without lights. Inspect the junction and nearby segment routes first, then compare traffic after the simulation settles.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "nodeId", "control", "enabled"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "nodeId": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "control": { "type": "string", "enum": ["trafficLights", "stopSign"] },
+          "segmentId": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "enabled": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "trial_junction_control",
+      "description": "Measured, self-reverting junction change after a verified checkpoint. Give exactly one change: trafficLights on or off, or stopSignSegmentIds (stop signs on those road ends, usually the quiet ends so the queued road goes first). Runs the simulation, samples the junction's roads and citywide flow, applies the change, waits settleSeconds for trips planned before it, samples again, and undoes it unless watched density fell by at least minimumDensityGain without citywide flow dropping more than maximumFlowDrop. Restores a paused simulation afterwards.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "nodeId"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "nodeId": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "trafficLights": { "type": "boolean" },
+          "stopSignSegmentIds": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "integer", "minimum": 1, "maximum": 65535 } },
+          "watchSegmentIds": { "type": "array", "maxItems": 50, "items": { "type": "integer", "minimum": 1, "maximum": 65535 } },
+          "samples": { "type": "integer", "minimum": 2, "maximum": 20, "default": 6 },
+          "sampleSeconds": { "type": "number", "minimum": 1, "maximum": 120, "default": 20 },
+          "settleSeconds": { "type": "number", "minimum": 0, "maximum": 600, "default": 60 },
+          "minimumDensityGain": { "type": "number", "minimum": 0, "maximum": 100, "default": 5 },
+          "maximumFlowDrop": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.01 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "widen_road_chain",
+      "description": "Upgrade a chain of congested road segments after a verified checkpoint, usually a hotspot's upgradeCandidates from assess_traffic_congestion, to the same-width upgrade (Basic Road to Small 4 Lane Road) or roadPrefab. Each segment passes the native upgrade preview first. Zoning is judged once after the whole chain, because a node between upgraded segments recovers when both sides are done: cells under a building's own footprint are restored, and with clearUnsupported a building still unsupported is bulldozed when its preview is safe, instead of the game demolishing it at random.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "segmentIds"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "segmentIds": { "type": "array", "minItems": 1, "maxItems": 40, "items": { "type": "integer", "minimum": 1, "maximum": 65535 } },
+          "roadPrefab": { "type": "string", "minLength": 1 },
+          "clearUnsupported": { "type": "boolean", "default": true }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "connect_water_facility",
+      "description": "Connect one placed water intake or outlet that reports WaterNotConnected to the existing water network with one branch pipe, after a verified checkpoint (or dryRun to preview). Requires pairBuildingId: an already connected facility of the other role that forms a safe hydrology pair with it. The branch runs from the facility's native connection point to the nearest live pipe node (at most 400m, in pieces under 160m with their joints shifted aside), every piece must pass native preview before any is built, and a branch that stops partway is removed; the facility must report connected afterwards. Use build_water_pipe for a whole new water system.",
+      "parameters": {
+        "type": "object",
+        "required": ["buildingId", "pairBuildingId"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "buildingId": { "type": "integer", "minimum": 1 },
+          "pairBuildingId": { "type": "integer", "minimum": 1 },
+          "pipePrefab": { "type": "string", "default": "Water Pipe" },
+          "name": { "type": "string" },
+          "dryRun": { "type": "boolean", "default": false }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_water_network_topology",
+      "description": "Verify that existing intake and sewage facilities join a real shared water-pipe component through separate branches, at least one intermediate trunk node, and an off-path branch from that trunk toward the serviced city. Reject direct facility connections and a facility-only path that does not supply the city.",
+      "parameters": {
+        "type": "object",
+        "required": ["intakeBuildingId", "outletBuildingId"],
+        "properties": {
+          "intakeBuildingId": { "type": "integer", "minimum": 1 },
+          "outletBuildingId": { "type": "integer", "minimum": 1 },
+          "minPathSegments": { "type": "integer", "minimum": 2, "default": 2 },
+          "minComponentSegments": { "type": "integer", "minimum": 3, "default": 3 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_checkpoint",
+      "description": "Create and verify a recovery checkpoint before any city mutation. Use the returned checkpointName, which may include a prefix or truncation applied by the game, for the subsequent mutation.",
+      "parameters": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "capture_regression_baseline",
+      "description": "Capture a named live-city regression baseline immediately before one mutation, including cash, population, problems, road count, utilities, current milestone and capability unlocks.",
+      "parameters": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "verify_regression",
+      "description": "Compare the live city with a named pre-mutation baseline, including milestone/capability changes reported as progressionChanged. A wake cannot finish until this and focused domain checks pass or the change is recovered.",
+      "parameters": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_simulation_speed",
+      "description": "Pause or resume the live simulation at speed 1 to 3 so the mayor can observe whether a change actually resolves its target symptom. Omit speed to keep the currently selected speed, for example when only pausing.",
+      "parameters": {
+        "type": "object",
+        "required": ["paused"],
+        "properties": {
+          "paused": { "type": "boolean" },
+          "speed": { "type": "integer", "minimum": 1, "maximum": 3, "description": "Selected simulation speed. When omitted, the current selected speed is preserved." }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "place_service",
+      "description": "Place one previously previewed and unlocked non-water, non-power-plant service building. The tool re-runs native placement and rejects unsafe candidates. Water facilities and power plants must use their dedicated tools.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "buildingPrefab", "position"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "buildingPrefab": { "type": "string" },
+          "position": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "angleDegrees": { "type": "number", "default": 0 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "rebuild_full_facility",
+      "description": "After a verified checkpoint, replace a full landfill or cemetery (CapacityFull flag or LandfillFull problem) with a new one of the same prefab on its own lot; a full one stops collecting, so its whole area goes unserved. Stored garbage or bodies are discarded. The rebuild is previewed on the same lot first, ignoring the old building, so a lot that cannot take it keeps the full facility and the result says why.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "buildingId"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "buildingId": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "place_power_plant",
+      "description": "Place one power plant after re-running native production, environmental exposure, and fuel-logistics gates. Requires a verified checkpoint. Run inspect_power_plant_operation after simulation settlement.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "buildingPrefab", "position"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "buildingPrefab": { "type": "string" },
+          "position": { "$ref": "#/$defs/point" },
+          "angleDegrees": { "type": "number", "default": 0 },
+          "minimumVariableOutputRatio": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.75 },
+          "maximumResidentialNoiseExposure": { "type": "integer", "minimum": 0, "default": 0 },
+          "maximumResidentialPollutionExposure": { "type": "integer", "minimum": 0, "default": 0 },
+          "maximumFuelRouteDistance": { "type": "number", "minimum": 128, "default": 5000 },
+          "maximumFuelRouteTrafficDensity": { "type": "integer", "minimum": 0, "maximum": 255, "default": 200 },
+          "requireRoadAccess": { "type": "boolean", "default": false },
+          "maxRoadDistance": { "type": "number", "minimum": 0, "maximum": 512, "default": 64 }
+        },
+        "$defs": {
+          "point": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "place_water_facility",
+      "description": "Place exactly one intake or outlet from a complete hydrologically safe pair after a verified checkpoint. The pair is re-checked before mutation; place both facilities separately, then build the verified pipe plan.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "role", "intake", "outlet"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "role": { "type": "string", "enum": ["intake", "outlet"] },
+          "intake": { "$ref": "#/$defs/facilityCandidate" },
+          "outlet": { "$ref": "#/$defs/facilityCandidate" },
+          "minSeparation": { "type": "number", "minimum": 64, "default": 256 },
+          "minDownstreamProjection": { "type": "number", "minimum": 32, "default": 128 },
+          "samplePadding": { "type": "number", "minimum": 16, "maximum": 512, "default": 64 },
+          "resolution": { "type": "integer", "minimum": 8, "maximum": 64, "default": 24 },
+          "checkUnlockedReach": { "type": "boolean", "default": true },
+          "unlockedReachResolution": { "type": "integer", "minimum": 16, "maximum": 64, "default": 48 },
+          "minFlowSpeed": { "type": "number", "minimum": 0.01, "default": 0.1 },
+          "minUnlockedFlowAgreement": { "type": "number", "minimum": -1, "maximum": 1, "default": 0.5 },
+          "maxUpstreamGap": { "type": "number", "minimum": 0, "default": 128 },
+          "maxDownstreamGap": { "type": "number", "minimum": 0, "default": 128 }
+        },
+        "$defs": {
+          "point": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "facilityCandidate": {
+            "type": "object",
+            "required": ["buildingPrefab", "position", "angleDegrees"],
+            "properties": {
+              "buildingPrefab": { "type": "string" },
+              "buildingId": { "type": "integer", "minimum": 0 },
+              "position": { "$ref": "#/$defs/point" },
+              "angleDegrees": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "build_network",
+        "description": "Build one previously previewed road or non-water utility segment with a verified checkpoint. Journals intent before sending, blocks unresolved or repeated failures, and polls pending ground-road verification until stable or failed. Ground-road preflight requires 0.12m clearance (0.02m settled minimum plus 0.10m reserve); optional 0–0.3m terrain-fit lifts may target new endpoints only. Power-line corridors are refreshed immediately before mutation and fail closed if they enter any current live building's oriented footprint plus 4m. The create-pass milestone stays pending until settled success. Success requires the same segment ID and a complete safe settled terrain profile; the result preserves settledVerification and settledTerrainProfile. Focused QA and regression, including progressionChanged, remain required. Water prefabs must use build_water_pipe.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "roadPrefab", "start", "end"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "roadPrefab": { "type": "string" },
+          "start": { "$ref": "#/$defs/point" },
+          "end": { "$ref": "#/$defs/point" },
+          "startTerrainFitLift": { "type": "number", "minimum": 0, "maximum": 0.3 },
+          "endTerrainFitLift": { "type": "number", "minimum": 0, "maximum": 0.3 },
+          "startHeightOffset": { "type": "number", "minimum": -64, "maximum": 64, "description": "Start elevation for an elevated, bridge, slope or tunnel prefab; ground roads reject it." },
+          "endHeightOffset": { "type": "number", "minimum": -64, "maximum": 64, "description": "End elevation for an elevated, bridge, slope or tunnel prefab; differing offsets form a ramp." },
+          "allowTerrainCut": { "type": "boolean", "default": false, "description": "Build a ground road that only dips into terrain bumps (preview terrainCut.carvable) as a cut: the game carves the drawn terrain to the road, and settled verification checks that final surface instead of raw-terrain clearance." },
+          "name": { "type": "string", "default": "" }
+        },
+        "$defs": {
+          "point": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "build_water_pipe",
+      "description": "Build exactly one segment, in segmentIndex order, from a complete safe water-system plan after a verified checkpoint. Preceding segments are matched against the live Water network; current and future segments are native-previewed before mutation. The tool then confirms the created segment is a Water network. Use a new checkpoint for each segment and call inspect_water_network_topology after the complete plan is built.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "segmentIndex", "intake", "outlet", "pipePrefab", "segments", "serviceAreaAnchor"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "segmentIndex": { "type": "integer", "minimum": 0, "maximum": 63 },
+          "intake": { "$ref": "#/$defs/facilityCandidate" },
+          "outlet": { "$ref": "#/$defs/facilityCandidate" },
+          "pipePrefab": { "type": "string" },
+          "segments": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 64,
+            "items": { "$ref": "#/$defs/pipeSegment" }
+          },
+          "serviceAreaAnchor": { "$ref": "#/$defs/point" },
+          "maxWaterPipeSegmentLength": { "type": "number", "minimum": 32, "maximum": 192, "default": 160 },
+          "nodeTolerance": { "type": "number", "minimum": 0.25, "maximum": 8, "default": 2 },
+          "maxFacilityPipeDistance": { "type": "number", "minimum": 8, "maximum": 128, "default": 64 },
+          "serviceAnchorTolerance": { "type": "number", "minimum": 2, "maximum": 64, "default": 16 },
+          "minSeparation": { "type": "number", "minimum": 64, "default": 256 },
+          "minDownstreamProjection": { "type": "number", "minimum": 32, "default": 128 },
+          "samplePadding": { "type": "number", "minimum": 16, "maximum": 512, "default": 64 },
+          "resolution": { "type": "integer", "minimum": 8, "maximum": 64, "default": 24 },
+          "checkUnlockedReach": { "type": "boolean", "default": true },
+          "unlockedReachResolution": { "type": "integer", "minimum": 16, "maximum": 64, "default": 48 },
+          "minFlowSpeed": { "type": "number", "minimum": 0.01, "default": 0.1 },
+          "minUnlockedFlowAgreement": { "type": "number", "minimum": -1, "maximum": 1, "default": 0.5 },
+          "maxUpstreamGap": { "type": "number", "minimum": 0, "default": 128 },
+          "maxDownstreamGap": { "type": "number", "minimum": 0, "default": 128 }
+        },
+        "$defs": {
+          "point": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "facilityCandidate": {
+            "type": "object",
+            "required": ["buildingPrefab", "position", "angleDegrees"],
+            "properties": {
+              "buildingPrefab": { "type": "string" },
+              "buildingId": { "type": "integer", "minimum": 0 },
+              "position": { "$ref": "#/$defs/point" },
+              "angleDegrees": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "pipeSegment": {
+            "type": "object",
+            "required": ["role", "start", "end"],
+            "properties": {
+              "role": { "type": "string", "enum": ["intakeBranch", "outletBranch", "sharedTrunk"] },
+              "start": { "$ref": "#/$defs/point" },
+              "end": { "$ref": "#/$defs/point" },
+              "name": { "type": "string", "default": "" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "build_water_service_pipe",
+      "description": "Build exactly one returned service-branch segment after a verified checkpoint. Re-proves the existing intake/outlet/shared-trunk component, exact target water state, source-node membership, plan identity, continuity, preceding live segments, Water prefab type, and native preview before mutation. Confirms the created segment is Water; settle, check every target's exact water/sewage coverage, verify regression, and replan before another segment.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "segmentIndex", "planId", "intakeBuildingId", "outletBuildingId", "targetBuildingIds", "sourceNodeId", "pipePrefab", "segments"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "segmentIndex": { "type": "integer", "minimum": 0, "maximum": 63 },
+          "planId": { "type": "string", "minLength": 1 },
+          "intakeBuildingId": { "type": "integer", "minimum": 1 },
+          "outletBuildingId": { "type": "integer", "minimum": 1 },
+          "targetBuildingIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": { "type": "integer", "minimum": 1 }
+          },
+          "sourceNodeId": { "type": "integer", "minimum": 1 },
+          "pipePrefab": { "type": "string" },
+          "segments": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": { "$ref": "#/$defs/serviceBranchSegment" }
+          },
+          "maxWaterPipeSegmentLength": { "type": "number", "minimum": 32, "maximum": 192, "default": 160 },
+          "nodeTolerance": { "type": "number", "minimum": 0.25, "maximum": 8, "default": 2 }
+        },
+        "$defs": {
+          "point": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "serviceBranchSegment": {
+            "type": "object",
+            "required": ["start", "end", "targetBuildingId"],
+            "properties": {
+              "start": { "$ref": "#/$defs/point" },
+              "end": { "$ref": "#/$defs/point" },
+              "targetBuildingId": { "type": "integer", "minimum": 0 },
+              "name": { "type": "string", "default": "Water Service Branch" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "zone_block",
+      "description": "Apply one exact actionable zoning block, or a backward-compatible bounded area, while preserving occupied cells. Prefer blockId returned by inspect_growth_capacity. Requires a verified checkpoint.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "zone"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "zone": { "type": "string", "enum": ["Unzoned", "ResidentialLow", "ResidentialHigh", "CommercialLow", "CommercialHigh", "Industrial", "Office"] },
+          "blockId": { "type": "integer", "minimum": 1, "description": "Exact current-city blockId returned by inspect_growth_capacity. When present, center and radius are ignored." },
+          "center": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "radius": { "type": "number", "minimum": 1, "maximum": 512 },
+          "preserveOccupied": { "type": "boolean", "default": true }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_service_budget",
+      "description": "Change one unlocked service budget only for an enumerated exception and when the 60-minute fiscal cooldown is clear. Requires a verified checkpoint. CS1 keeps separate day and night budgets; dayAndNight sets both as one fiscal action.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "service", "budget", "reason", "expectedOutcome"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "service": { "type": "string" },
+          "subService": { "type": "string", "default": "None" },
+          "budget": { "type": "integer", "minimum": 50, "maximum": 150 },
+          "night": { "type": "boolean", "default": false },
+          "dayAndNight": { "type": "boolean", "default": false, "description": "Set the day and night budget together as one fiscal action; overrides night." },
+          "reason": {
+            "type": "string",
+            "enum": ["sustained-deficit", "critical-capacity", "post-change-correction"]
+          },
+          "expectedOutcome": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "take_loan",
+      "description": "Take one of the game's loans (see /state/loan-options: slot 0 is the smallest and cheapest) to fund construction that is planned and previewed but costs more than the cash the city keeps in hand. Requires a verified checkpoint; a slot with an outstanding balance is refused.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "slot", "reason", "expectedOutcome"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "slot": { "type": "integer", "minimum": 0, "maximum": 2 },
+          "option": { "type": "integer", "minimum": 0, "default": 0 },
+          "reason": { "type": "string", "enum": ["fund-planned-construction"] },
+          "expectedOutcome": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_tax_rate",
+      "description": "Change one zoned service tax rate only for an enumerated exception and when the 60-minute fiscal cooldown is clear. Requires a verified checkpoint.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "service", "rate", "reason", "expectedOutcome"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "service": { "type": "string", "enum": ["Residential", "Commercial", "Industrial", "Office"] },
+          "subService": { "type": "string", "default": "None" },
+          "rate": { "type": "integer", "minimum": 0, "maximum": 29 },
+          "reason": {
+            "type": "string",
+            "enum": ["taxes-too-high", "sustained-deficit", "post-change-correction"]
+          },
+          "expectedOutcome": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "purchase_map_area",
+      "description": "Buy exactly one map tile the game currently offers (canUnlock in /state/map-areas) at its live land price, the same path as the native area panel. Refuses when the purchase would leave less than reserveDisplay cash, and verifies the tile is owned, areaCount grew by one and maxAreaCount is unchanged. Requires a verified checkpoint.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "tileIndex"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "tileIndex": { "type": "integer", "minimum": 0, "maximum": 24 },
+          "reserveDisplay": { "type": "number", "minimum": 0, "default": 10000 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_transport_line",
+      "description": "Create one unlocked Bus, Train, or Metro line from explicitly spaced stops. Requires a verified checkpoint.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "transportType", "stops"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "transportType": { "type": "string", "enum": ["Bus", "Train", "Metro"] },
+          "stops": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "required": ["x", "z"],
+              "properties": {
+                "x": { "type": "number" },
+                "z": { "type": "number" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "completeLoop": { "type": "boolean", "default": true },
+          "name": { "type": "string", "default": "" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_transport_line",
+      "description": "Change settings for one existing compatible transport line. Requires a verified checkpoint.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "lineId"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "lineId": { "type": "integer", "minimum": 1 },
+          "budget": { "type": "integer", "minimum": 50, "maximum": 150 },
+          "ticketPrice": { "type": "integer", "minimum": 0 },
+          "name": { "type": "string" },
+          "color": { "type": "string" },
+          "vehiclePrefab": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "delete_transport_line",
+      "description": "Delete one existing transport line, its stops and its vehicles. Requires a verified checkpoint.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "lineId"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "lineId": { "type": "integer", "minimum": 1 },
+          "dryRun": { "type": "boolean", "default": false }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "preview_building_candidate",
+      "description": "Run the unified hard placement gate for any base-game building. Reports game-native placement errors, rotated footprint collisions, road access, terrain, current and generated pollution, noise exposure, utility consumption, water-side telemetry, and electricity production without mutation.",
+      "parameters": {
+        "type": "object",
+        "required": ["buildingPrefab", "position"],
+        "properties": {
+          "buildingPrefab": { "type": "string" },
+          "buildingId": { "type": "integer", "minimum": 0 },
+          "position": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "z": { "type": "number" }
+            },
+            "additionalProperties": false
+          },
+          "angleDegrees": { "type": "number", "default": 0 },
+          "requireRoadAccess": { "type": "boolean", "default": false },
+          "maxRoadDistance": { "type": "number", "minimum": 0, "maximum": 512, "default": 64 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "preview_bulldoze_impact",
+      "description": "Inspect deletion risks for storage, depots, last services, network cuts and outside connections. Road targets also report both undirected components after removal and native building-access dependencies, with unresolved associations explicit. This diagnostic does not simulate operational impact or authorize removal; existing risk confirmation and recovery gates still apply.",
+      "parameters": {
+        "type": "object",
+        "required": ["entityType", "id"],
+        "properties": {
+          "entityType": { "type": "string", "enum": ["building", "netSegment", "netNode"] },
+          "id": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "bulldoze_entity",
+      "description": "Delete one entity after a verified checkpoint. Tool-level impact guards block storage, transport, service-capacity, network-cut, and outside-connection risks unless confirmRisks is explicitly justified.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "entityType", "id"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "entityType": { "type": "string", "enum": ["building", "netSegment", "netNode"] },
+          "id": { "type": "integer", "minimum": 1 },
+          "keepNodes": { "type": "boolean", "default": false },
+          "confirmRisks": { "type": "boolean", "default": false }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "clear_abandoned_buildings",
+      "description": "After a verified checkpoint, bulldoze every abandoned, burned-down or collapsed growable so its lot regrows; they never recover on their own and spread problems to their neighbours. Each is cleared only when its bulldoze preview is safe (others are listed in skipped with their risks), one the game refuses to release is listed in refused, and the result re-reads the city to confirm each cleared building is gone. dryRun lists what would be cleared.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
+          "dryRun": { "type": "boolean", "default": false }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "preview_operational_change",
+      "description": "Preview enabling or disabling a building. Disabling warns about non-empty storage, transport depot assignments, and removing the last active facility of a service type.",
+      "parameters": {
+        "type": "object",
+        "required": ["id", "active"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "active": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_building_active",
+      "description": "Enable or disable a building after a verified checkpoint. Tool-level dependency guards require explicit confirmRisks for a non-empty storage facility, assigned depot, or last active service facility.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "id", "active"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "id": { "type": "integer", "minimum": 1 },
+          "active": { "type": "boolean" },
+          "confirmRisks": { "type": "boolean", "default": false }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "preview_transport_plan",
+      "description": "Validate a Bus, Train, or Metro line before mutation. Requires unlocked transport, compatible network within 64m of every stop, at least 32m between stops, and an active matching depot for buses.",
+      "parameters": {
+        "type": "object",
+        "required": ["transportType", "stops"],
+        "properties": {
+          "transportType": { "type": "string", "enum": ["Bus", "Train", "Metro"] },
+          "stops": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "required": ["x", "z"],
+              "properties": {
+                "x": { "type": "number" },
+                "z": { "type": "number" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "completeLoop": { "type": "boolean", "default": true },
+          "name": { "type": "string", "default": "" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "preview_district_specialization",
+      "description": "Preview Forestry, Farming, Oil, or Ore specialization against the district's live resource samples. Missing resources are reported as import-dependent unless local extraction is explicitly required.",
+      "parameters": {
+        "type": "object",
+        "required": ["districtId", "specialization"],
+        "properties": {
+          "districtId": { "type": "integer", "minimum": 1, "maximum": 127 },
+          "specialization": { "type": "string", "enum": ["None", "Forestry", "Farming", "Oil", "Ore"] },
+          "requireLocalResource": { "type": "boolean", "default": false },
+          "minResourceIntensity": { "type": "integer", "minimum": 1, "maximum": 255, "default": 32 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_district",
+      "description": "Paint a new district as a circle after a verified checkpoint. It refuses to overlap an existing district; the result names the new districtId.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "center", "radius"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "center": {
+            "type": "object",
+            "required": ["x", "z"],
+            "properties": { "x": { "type": "number" }, "z": { "type": "number" } },
+            "additionalProperties": false
+          },
+          "radius": { "type": "number", "minimum": 20, "maximum": 1000 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_district_specialization",
+      "description": "Set an unlocked district specialization after a verified checkpoint. When requireLocalResource=true, the Bridge blocks specializations with no matching sampled resource.",
+      "parameters": {
+        "type": "object",
+        "required": ["checkpointName", "districtId", "specialization"],
+        "properties": {
+          "checkpointName": { "type": "string", "minLength": 1 },
+          "districtId": { "type": "integer", "minimum": 1, "maximum": 127 },
+          "specialization": { "type": "string", "enum": ["None", "Forestry", "Farming", "Oil", "Ore"] },
+          "requireLocalResource": { "type": "boolean", "default": false },
+          "minResourceIntensity": { "type": "integer", "minimum": 1, "maximum": 255, "default": 32 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "save_city",
+      "description": "Save and verify the current city after successful post-action checks.",
+      "parameters": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "load_mayor_memory",
+      "description": "Load city-scoped persistent mayor memory. The tool compares the live city instanceId and atomically resets all prior goals, coordinates, entity IDs, cooldowns, and snapshot history when a different city is loaded.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "save_mayor_memory",
+      "description": "Atomically persist updated mayor memory after a wake-up cycle, rejecting state that belongs to a different live city instance.",
+      "parameters": {
+        "type": "object",
+        "required": ["state"],
+        "properties": {
+          "state": { "type": "object" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "score_candidates",
+      "description": "Deterministically rank caller-supplied candidate scores using urgency, resident impact, confidence, vision alignment, cost, risk, and repetition. This tool does not establish native feasibility, evidence provenance, freshness or scope; apply hard gates before calling it.",
+      "parameters": {
+        "type": "object",
+        "required": ["candidates"],
+        "properties": {
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "urgency", "impact", "confidence", "alignment", "cost", "risk", "repetitionPenalty"],
+              "properties": {
+                "id": { "type": "string" },
+                "description": { "type": "string" },
+                "hardBlocked": { "type": "boolean", "default": false },
+                "urgency": { "type": "number", "minimum": 0, "maximum": 100 },
+                "impact": { "type": "number", "minimum": 0, "maximum": 100 },
+                "confidence": { "type": "number", "minimum": 0, "maximum": 100 },
+                "alignment": { "type": "number", "minimum": 0, "maximum": 100 },
+                "cost": { "type": "number", "minimum": 0, "maximum": 100 },
+                "risk": { "type": "number", "minimum": 0, "maximum": 100 },
+                "repetitionPenalty": { "type": "number", "minimum": 0, "maximum": 100 }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_terrain_editing",
+      "description": "Read native landscaping unlock, actual toolbar usability, required milestone, soil buffer and native unit price. Read-only capability evidence; no terrain mutation or construction authorization. The Bridge does not yet expose terrain editing.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  }
+]

@@ -1,0 +1,14 @@
+# Weekly update PRs, plus security updates as soon as an advisory is published.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /docs
+    schedule:
+      interval: weekly
+    groups:
+      docs-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

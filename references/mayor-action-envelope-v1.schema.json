@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ChenShunHsu/cities-skylines-ai-agent/references/mayor-action-envelope-v1.schema.json",
+  "title": "Mayor local executor action envelope v1",
+  "type": "object",
+  "required": ["envelopeVersion", "missionId", "instanceId", "toolContractVersion", "step", "decision"],
+  "properties": {
+    "envelopeVersion": {"type": "integer", "const": 1},
+    "missionId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "instanceId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "toolContractVersion": {"type": "string", "minLength": 1, "maxLength": 128},
+    "step": {"type": "integer", "minimum": 1, "maximum": 100},
+    "decision": {"type": "string", "enum": ["call_tool", "wait", "complete", "escalate"]},
+    "toolName": {"type": "string", "minLength": 1, "maxLength": 128},
+    "arguments": {"type": "object", "maxProperties": 64},
+    "expectedEvidence": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "city_snapshot",
+          "progression_mode",
+          "traffic_summary",
+          "affected_segments",
+          "planning_area",
+          "candidate_set",
+          "native_preview",
+          "checkpoint",
+          "regression_baseline",
+          "mutation_result",
+          "settlement",
+          "focused_qa",
+          "regression",
+          "save_verification",
+          "recovery_verification",
+          "tool_result"
+        ]
+      }
+    },
+    "onMissingEvidence": {"type": "string", "enum": ["escalate", "wait"]},
+    "estimatedCostDisplay": {"type": "number", "minimum": 0, "maximum": 1000000000},
+    "reasonCode": {
+      "type": "string",
+      "enum": [
+        "stage_complete",
+        "mission_complete",
+        "awaiting_settlement",
+        "no_safe_candidate",
+        "missing_required_telemetry",
+        "contract_scope_mismatch",
+        "expired_contract",
+        "tool_not_allowed",
+        "step_budget_exhausted",
+        "cost_budget_exhausted",
+        "mutation_requires_new_authority",
+        "regression_or_recovery_required",
+        "two_no_progress_cycles",
+        "runtime_resource_limit",
+        "malformed_model_output"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

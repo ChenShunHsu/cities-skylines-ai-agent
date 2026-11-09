@@ -1,0 +1,38 @@
+{
+  "policyVersion": "mayor-policies-v1",
+  "policies": [
+    {
+      "id": "electricity_capacity_pressure",
+      "metric": "utilities.electricity.utilization",
+      "enterWhen": {"operator": "gte", "value": 0.9},
+      "exitWhen": {"operator": "lte", "value": 0.8},
+      "consecutiveSamples": 1,
+      "cooldownGameDays": 1,
+      "severity": "high",
+      "candidateActionClass": "read_only_inspection",
+      "recheckCondition": "Recompute after capacity or demand changes at a later game time"
+    },
+    {
+      "id": "water_capacity_pressure",
+      "metric": "utilities.water.utilization",
+      "enterWhen": {"operator": "gte", "value": 0.9},
+      "exitWhen": {"operator": "lte", "value": 0.8},
+      "consecutiveSamples": 1,
+      "cooldownGameDays": 1,
+      "severity": "high",
+      "candidateActionClass": "read_only_inspection",
+      "recheckCondition": "Recompute after capacity or demand changes at a later game time"
+    },
+    {
+      "id": "sewage_capacity_pressure",
+      "metric": "utilities.sewage.utilization",
+      "enterWhen": {"operator": "gte", "value": 0.9},
+      "exitWhen": {"operator": "lte", "value": 0.8},
+      "consecutiveSamples": 1,
+      "cooldownGameDays": 1,
+      "severity": "high",
+      "candidateActionClass": "read_only_inspection",
+      "recheckCondition": "Recompute after capacity or demand changes at a later game time"
+    }
+  ]
+}

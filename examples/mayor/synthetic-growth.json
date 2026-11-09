@@ -1,0 +1,32 @@
+{
+  "fixtureNote": "Synthetic contract example, not a captured city or simulated outcome.",
+  "ok": true,
+  "city": {"instanceId": "synthetic-demo", "name": "Demo", "map": "Fixture"},
+  "snapshot": {"gameTime": "2050-01-02T00:00:00", "frame": 2},
+  "summary": {
+    "ok": true,
+    "population": 1000,
+    "demand": {"residential": 70, "commercial": 20, "workplace": 10}
+  },
+  "cityHealth": {
+    "ok": true,
+    "cash": {"amount": 30000000, "periodNet": -25502},
+    "wellbeing": {"happiness": 75},
+    "employment": {"unemployment": 5},
+    "services": {
+      "healthcare": {"used": 10, "capacity": 100},
+      "elementaryEducation": {"used": 100, "capacity": 300},
+      "highSchoolEducation": {"used": 50, "capacity": 100},
+      "universityEducation": {"used": 0, "capacity": 0}
+    },
+    "utilities": {
+      "electricity": {"used": 40, "capacity": 100},
+      "water": {"used": 40, "capacity": 100},
+      "sewage": {"used": 40, "capacity": 100}
+    }
+  },
+  "problems": {"ok": true, "total": 0, "countsByProblem": {}, "returned": 0},
+  "roadAnomalies": {"ok": true, "total": 0},
+  "buildingAnomalies": {"ok": true, "total": 0},
+  "traffic": {"ok": true, "severeSegments": 0}
+}

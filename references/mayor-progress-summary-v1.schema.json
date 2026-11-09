@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ChenShunHsu/cities-skylines-ai-agent/references/mayor-progress-summary-v1.schema.json",
+  "title": "Mayor local executor progress summary v1",
+  "type": "object",
+  "required": [
+    "summaryVersion",
+    "missionId",
+    "instanceId",
+    "toolContractVersion",
+    "status",
+    "currentStage",
+    "executorSteps",
+    "remainingSteps",
+    "spentDisplay",
+    "remainingBudgetDisplay",
+    "lastDecision",
+    "observations",
+    "evidenceRefs",
+    "noProgressCycles"
+  ],
+  "properties": {
+    "summaryVersion": {"type": "integer", "const": 1},
+    "missionId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "instanceId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "toolContractVersion": {"type": "string", "minLength": 1, "maxLength": 128},
+    "status": {"type": "string", "enum": ["running", "waiting", "complete", "blocked"]},
+    "currentStage": {
+      "type": "string",
+      "enum": ["collect_evidence", "select_candidate", "preview_candidate", "await_authority", "execute", "settle", "verify", "recover"]
+    },
+    "executorSteps": {"type": "integer", "minimum": 0, "maximum": 100},
+    "remainingSteps": {"type": "integer", "minimum": 0, "maximum": 100},
+    "spentDisplay": {"type": "number", "minimum": 0, "maximum": 1000000000},
+    "remainingBudgetDisplay": {"type": "number", "minimum": 0, "maximum": 1000000000},
+    "lastDecision": {"type": "string", "enum": ["call_tool", "wait", "complete", "escalate"]},
+    "observations": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "required": ["metric", "value"],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "enum": [
+              "population",
+              "cashDisplay",
+              "periodNetDisplay",
+              "trafficFlow",
+              "severeRoadCount",
+              "problemBuildingCount",
+              "unservedElectricityCount",
+              "unservedWaterCount",
+              "unservedSewageCount",
+              "vacantDevelopmentCells",
+              "serviceCoverageRatio"
+            ]
+          },
+          "value": {"type": "number"},
+          "baseline": {"type": "number"},
+          "delta": {"type": "number"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 12, "maxLength": 512}
+    },
+    "noProgressCycles": {"type": "integer", "minimum": 0, "maximum": 2}
+  },
+  "additionalProperties": false
+}
