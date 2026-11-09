@@ -787,6 +787,10 @@ An exact `blockId` is instead skipped only when its own valid cells are natively
 occupied or a protected building footprint reaches one of them, so a clear block
 across the street from homes can be zoned. When a gate skips an exact block,
 the command returns `ok: false` with the skipped counts and changes no cells.
+With an exact `blockId`, `vacantCellsOnly: true` (default `false`) changes only
+the block's valid cells that no building occupies and leaves the cells under
+standing buildings as they are, so the empty part of a partly built block can be
+zoned anew; a dry run then also reports `vacantCells`.
 
 ## POST /commands/repair-zones-to-growables
 

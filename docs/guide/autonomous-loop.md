@@ -25,6 +25,9 @@ accepted and is the default). Each wake runs as its own process
      absorbed (up to 12), and a few blocks when vacancy that never builds holds the pacing back;
    - blocks: `propose_zoning_blocks` (neighbourhood use within distance rules; the city plan overrides);
      a block whose zoning fails is never proposed again;
+   - workers short (unemployment at or below 3% while both workplace and residential demand stay
+     high): homes are zoned each wake and no new job zoning, since new jobs would stand short of
+     workers too;
    - no block left: built-up low-density blocks become high density, centre first;
    - still none, demand is high, every home has water and power, and cash is at least 15,000:
      `propose_expansion_areas` picks free land; an access road (homes in its path are cleared; a
@@ -79,14 +82,21 @@ accepted and is the default). Each wake runs as its own process
    the wake are counted by kind and by the problems left on them; ten or more burned within 300m
    of one another (a fire is out before the next wake reads it) get a fire station there first.
    An economy problem still rising gets its lever where the loop has one: shops short of customers
-   have the empty commercial blocks by them zoned for homes (offices where homes may not go), and
+   have the empty commercial blocks by them zoned for homes (offices where homes may not go, and
+   only while jobs are wanted and workers are not short); a shop block with eight or more empty
+   cells beside its shops has only those cells rezoned (`vacantCellsOnly`). A rise in idle shops
+   goes to the planner only past 5% of the city's shops, and
    industry short of goods gets a Forestry or Farming district (`loop/industry.py`) painted over
    the industrial blocks on forest or fertile ground, one at a time; the planner hears of either
    only when nothing is left to do.
 6. **Traffic** (`traffic.py`): hotspots that persist get the remedies `propose_traffic_remedies`
    ranks (downstream relief, transit, junction trials, widening, a bypass from
    `propose_bypass_roads`), one action a wake, each judged afterwards; kinds that keep failing in
-   this city go last.
+   this city go last. A bypass starts upstream of the hotspot, where its traffic enters, and is
+   built piece by piece: homes and small utility buildings (water towers, wind turbines) under a
+   piece are cleared after their own bulldoze preview, and a piece that fails takes down the
+   pieces already built. Freight from the industry gets a cargo train terminal: beside the railway
+   when a lot fits, else by the industry with a tunnel to the railway (`loop/cargo_remote.py`).
 
 Every change runs under the protocol in `protocol.py`: checkpoint, regression baseline, change,
 settle, verify. The checkpoint save is taken once per phase of a wake (utilities, growth,

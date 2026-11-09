@@ -27,7 +27,9 @@ This fork grows it into an agent that keeps a city running and expanding on its 
   against the terrain.
 - **An autonomous play loop** (`scripts/loop/`) that keeps a city running on its own: services, utilities,
   zoning pacing, traffic remedies (widening, junction control, transit, bypasses, highway exits, metro)
-  and freight rail, each judged afterwards by what it changed. A large model (such as Claude) is needed
+  and freight rail (a cargo terminal by the industry, joined to a distant railway through a tunnel when no
+  lot beside the railway fits), each judged afterwards by what it changed. Shop land left empty is
+  rezoned cell by cell (`set-zone` with `vacantCellsOnly`), and homes come first while workers are short. A large model (such as Claude) is needed
   only for the structural problems the loop hands it. An optional small local model can cross-check
   readings (`--model`); it never calls mutating tools.
 - **Researched gameplay knowledge**, written as short rules. It covers demand pacing, the zoning

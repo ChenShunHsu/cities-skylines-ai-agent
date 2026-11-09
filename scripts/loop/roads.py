@@ -125,12 +125,22 @@ def build(label: str, prefab: str, start: tuple[float, float], end: tuple[float,
             "qaOk": qa.get("ok"), "regressionOk": regression.get("ok")}
 
 
+GONE = "Building was not found"
+
+
 def clear_buildings(label: str, ids: list[int]) -> dict[str, Any]:
     """Bulldoze buildings one by one, each after its own bulldoze preview. Displacement is not
-    capped; a building whose removal the preview rates unsafe stops the clearing."""
+    capped; a building whose removal the preview rates unsafe stops the clearing. One already gone
+    is passed: a listing read earlier may name buildings the game has since removed (live: a piece
+    built over its neighbours took them down, and the next piece's clearing stopped the wake)."""
     cleared = []
     for building in ids:
-        impact = mt.call_tool("preview_bulldoze_impact", {"entityType": "building", "id": building})
+        try:
+            impact = mt.call_tool("preview_bulldoze_impact", {"entityType": "building", "id": building})
+        except mt.BridgeRequestError as error:
+            if GONE in str(error):
+                continue
+            raise
         if not impact.get("safe"):
             return {"ok": False, "blocked": building, "cleared": cleared}
         outcome = protocol.run(f"{label}-clear-{building}", "bulldoze_entity", {"entityType": "building", "id": building})

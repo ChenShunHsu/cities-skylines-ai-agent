@@ -8,6 +8,9 @@ namespace SkylinesAgentBridge
         {
             bool dryRun = JsonUtil.GetBool(body, "dryRun", false);
             bool preserveOccupied = JsonUtil.GetBool(body, "preserveOccupied", true);
+            // With an exact block, change only the valid cells no building occupies, so the empty
+            // part of a block beside its standing buildings can be zoned anew.
+            bool vacantCellsOnly = JsonUtil.GetBool(body, "vacantCellsOnly", false);
             string zoneName = JsonUtil.GetString(body, "zone", "ResidentialLow");
             ushort requestedBlockId = (ushort)JsonUtil.GetNumber(body, "blockId", 0f);
             float radius = JsonUtil.GetNumber(body, "radius", 32f);
@@ -35,6 +38,7 @@ namespace SkylinesAgentBridge
             int touchedBlocks = 0;
             int skippedOccupiedBlocks = 0;
             int changedCells = 0;
+            int vacantCells = 0;
 
             for (int i = 1; i < manager.m_blocks.m_buffer.Length; i++)
             {
@@ -64,7 +68,25 @@ namespace SkylinesAgentBridge
                 // building footprints that reach its cells. The broad radius
                 // guard exists for legacy center/radius repaint and would
                 // otherwise forbid every block across the street from a home.
-                if (preserveOccupied &&
+                ulong taken = block.m_occupied1 | block.m_occupied2;
+                bool cellsOnly = vacantCellsOnly && requestedBlockId != 0;
+                if (cellsOnly)
+                {
+                    int blockRows = ZoneHelpers.GetRowCount(block);
+                    for (int z = 0; z < blockRows; z++)
+                    {
+                        for (int x = 0; x < 4; x++)
+                        {
+                            ulong cell = ZoneCellLayout.Bit(x, z);
+                            if ((block.m_valid & cell) != 0 && (taken & cell) == 0)
+                            {
+                                vacantCells++;
+                            }
+                        }
+                    }
+                }
+
+                if (preserveOccupied && !cellsOnly &&
                     (requestedBlockId != 0
                         ? ExactBlockHasProtectedBuilding(block)
                         : ZoneBlockHasProtectedBuilding(block)))
@@ -81,6 +103,11 @@ namespace SkylinesAgentBridge
                     {
                         for (int x = 0; x < 4; x++)
                         {
+                            if (cellsOnly && (taken & ZoneCellLayout.Bit(x, z)) != 0)
+                            {
+                                continue;
+                            }
+
                             try
                             {
                                 // Invalid cells keep a zone value but can never develop,
@@ -112,7 +139,7 @@ namespace SkylinesAgentBridge
 
             if (dryRun)
             {
-                return CommandResult.FromJson("{\"ok\":true,\"dryRun\":true,\"zone\":\"" + JsonUtil.Escape(zoneName) + "\",\"preserveOccupied\":" + JsonUtil.Bool(preserveOccupied) + ",\"requestedBlockId\":" + requestedBlockId + ",\"matchingBlocks\":" + touchedBlocks + ",\"skippedOccupiedBlocks\":" + skippedOccupiedBlocks + "}");
+                return CommandResult.FromJson("{\"ok\":true,\"dryRun\":true,\"zone\":\"" + JsonUtil.Escape(zoneName) + "\",\"preserveOccupied\":" + JsonUtil.Bool(preserveOccupied) + ",\"requestedBlockId\":" + requestedBlockId + ",\"matchingBlocks\":" + touchedBlocks + ",\"skippedOccupiedBlocks\":" + skippedOccupiedBlocks + ",\"vacantCellsOnly\":" + JsonUtil.Bool(vacantCellsOnly) + ",\"vacantCells\":" + vacantCells + "}");
             }
 
             if (requestedBlockId != 0 && zone != ItemClass.Zone.Unzoned &&

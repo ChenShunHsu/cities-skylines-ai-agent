@@ -1,4 +1,4 @@
-# CS1 城市規劃知識（2026-10-23 整理）
+# CS1 城市規劃知識
 
 本文件整理 Cities: Skylines 1 base game 的規劃知識，來源是官方社群 wiki 與玩家社群。
 目的是讓 mayor agent 不只「安全」，也懂得經營城市。

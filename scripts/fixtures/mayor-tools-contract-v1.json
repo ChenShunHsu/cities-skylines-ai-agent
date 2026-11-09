@@ -1,7 +1,7 @@
 {
   "version": 1,
   "toolCount": 99,
-  "canonicalSha256": "2ec174d5b30416422eb8183b6839ced0788e7b20131964c9774eff385bd2cc0c",
+  "canonicalSha256": "1d130be802a56f302de67f890fc68768baa3cbc8ea89089cb0b7a4cbc9a5d707",
   "names": [
     "inspect_zone_cell_geometry",
     "assess_city",

@@ -124,6 +124,8 @@ def kinds_for(hotspot: dict[str, Any], remedies: dict[str, dict[str, Any]],
 
 
 def count(state: dict[str, Any], kind: str, verdict: str) -> None:
+    if verdict == "none":  # nothing to build here: says nothing of how the kind works
+        return
     record = state["kindStats"].setdefault(kind, {"worked": 0, "failed": 0})
     record["worked" if verdict == "worked" else "failed"] += 1
 
@@ -348,32 +350,65 @@ def transit(label: str, hotspot: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def worth_building(candidate: dict[str, Any]) -> bool:
+    """Enough vehicles for what it clears: a relocated utility building counts as three homes."""
     vehicles = float(candidate.get("servesVehicles") or 0)
-    cleared = len(candidate.get("clearGrowables") or [])
+    cleared = len(candidate.get("clearGrowables") or []) + \
+        mt.BYPASS_RELOCATE_WEIGHT * len(candidate.get("relocateBuildings") or [])
     return vehicles >= BYPASS_MIN_VEHICLES and vehicles >= BYPASS_VEHICLES_PER_CLEARED * cleared
 
 
 def bypass(city: City, label: str, hotspot: dict[str, Any]) -> dict[str, Any] | None:
     """Build the best buildable connector around the hotspot (propose_bypass_roads) that carries
-    enough of its traffic for what it clears (worth_building): clear the growables under it after
-    their own bulldoze preview, then build its pieces in order."""
+    enough of its traffic for what it clears (worth_building), piece by piece: the growables and
+    relocatable utility buildings under a piece are cleared after their own bulldoze preview (the
+    services loop builds the utility again where it is short), then the piece is built, so a piece
+    that fails costs only what lay under it (live: eleven homes along a whole connector were
+    cleared before its second piece failed). A piece that fails takes down the pieces built."""
     proposal = mt.call_tool("propose_bypass_roads", {"limit": 5, "candidateLimit": 3})
     match = next((item for item in proposal["hotspots"] if same(item["segmentIds"], hotspot["segmentIds"])), None)
     candidate = next((item for item in (match or {}).get("candidates", []) if item["buildable"]
                       and worth_building(item)), None)
     if candidate is None:
         return None
-    clearing = roads.clear_buildings("bypass", candidate["clearGrowables"])
-    cleared = clearing["cleared"]
-    if not clearing["ok"]:
-        return {"ok": False, "stage": "clearing", "blocked": clearing["blocked"], "cleared": cleared}
-    built, start = [], (candidate["from"]["x"], candidate["from"]["z"])
-    for index, piece in enumerate(candidate["pieces"]):
-        outcome = roads.build(f"bypass-{label}-{index}", "Basic Road", start,
-                              (piece["end"]["x"], piece["end"]["z"]), city)
-        if not outcome["ok"]:
-            return {"ok": False, "stage": f"piece{index}", "built": built, "cleared": cleared}
-        built.append(outcome.get("segmentId"))
+    previews = candidate.get("previews") or [{}] * len(candidate["pieces"])
+    built: list[int] = []
+    cleared: list[int] = []
+    start = (candidate["from"]["x"], candidate["from"]["z"])
+
+    def failed(stage: str, **detail: Any) -> dict[str, Any]:
+        removed = [segment for segment in reversed(built) if protocol.run(
+            f"bypass-undo-{label}-{segment}", "bulldoze_entity", {"entityType": "netSegment", "id": segment})["ok"]]
+        return {"ok": False, "stage": stage, "built": built, "removed": removed,
+                "undone": set(removed) == set(built), "cleared": cleared, **detail}
+
+    for index, (piece, preview) in enumerate(zip(candidate["pieces"], previews)):
+        try:
+            under = (preview.get("clearGrowables") or []) + (preview.get("relocateBuildings") or [])
+            # from where the last piece really ended: what stops it other than the buildings to be
+            # cleared stops it before they are (live: nine buildings cleared for a second piece the
+            # game then refused for a collision with no building in it)
+            fits, _, seen = roads.preview("Basic Road", start, (piece["end"]["x"], piece["end"]["z"]),
+                                          f"bypass-{label}-{index}")
+            obstacles = seen.get("obstacles") or []
+            if not fits and (not obstacles or any(item.get("id") not in under and item.get("service") not in roads.GROWABLE
+                                                  for item in obstacles)):
+                return failed(f"piece{index}", pieceStage="beforeClearing", error=str(seen)[:300])
+            clearing = roads.clear_buildings("bypass", [item for item in under if item not in cleared])
+            cleared += clearing["cleared"]
+            if not clearing["ok"]:
+                return failed("clearing", blocked=clearing["blocked"])
+            outcome = roads.build(f"bypass-{label}-{index}", "Basic Road", start,
+                                  (piece["end"]["x"], piece["end"]["z"]), city)
+        except Exception:
+            # an error mid-way takes the wake down: the pieces built must not stay as dead ends (live:
+            # each of two failed retries left its first piece standing)
+            if built:
+                failed(f"piece{index}")
+            raise
+        if not outcome["ok"] or not outcome.get("segmentId"):
+            return failed(f"piece{index}", pieceStage=outcome.get("stage"),
+                          error=str(outcome.get("error") or (outcome.get("tried") or [{}])[-1])[:300])
+        built.append(outcome["segmentId"])
         start = (outcome["end"]["x"], outcome["end"]["z"])
     return {"ok": True, "segments": built, "cleared": cleared, "length": candidate["length"],
             "detour": candidate["detour"], "servesVehicles": candidate["servesVehicles"]}
@@ -612,7 +647,7 @@ def act(city: City, label: str, state: dict[str, Any], key: str, hotspot: dict[s
             return None
         road = bypass(city, label, hotspot)
         if road is None:
-            return record(state, key, kind, hotspot, {"target": "connector", "none": True}, "failed")
+            return record(state, key, kind, hotspot, {"target": "connector", "none": True}, "none")
         summary["bypass"] = road
         return record(state, key, kind, hotspot, {"target": "connector", **road}, None if road["ok"] else "failed")
     if kind == "metro":
@@ -697,6 +732,10 @@ def watch(city: City, label: str) -> dict[str, Any]:
         if action:
             break  # one action a wake: trials run the simulation for game months
         state["spent"][key] = state["wake"]
+        if any(item["key"] == key and item["verdict"] is None for item in state["actions"]):
+            # a remedy built here is still to be judged: the planner hears once it is (live: a hotspot
+            # went to the planner the wake after its new exit ramp was built)
+            continue
         if state["wake"] - state["escalatedAt"].get(key, -ESCALATE_EVERY) >= ESCALATE_EVERY:
             state["escalatedAt"][key] = state["wake"]
             summary["escalation"] = {"key": key, "segments": hotspot["segmentCount"],

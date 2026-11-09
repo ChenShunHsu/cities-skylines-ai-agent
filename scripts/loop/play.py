@@ -139,8 +139,8 @@ def stop_reasons(report: dict[str, Any], baseline_unlocks: set[str], reserve: fl
     if traffic.get("highwayExit") and traffic["highwayExit"].get("ok") is False \
             and not traffic["highwayExit"].get("undone", True):
         reasons.append({"trafficExitNotUndone": traffic["highwayExit"]})  # a ramp piece left behind
-    if traffic.get("bypass") and not traffic["bypass"]["ok"] and traffic["bypass"].get("stage") != "clearing":
-        reasons.append({"trafficBypassFailed": traffic["bypass"]})  # a piece failed: a dead end may remain
+    if traffic.get("bypass") and not traffic["bypass"]["ok"] and not traffic["bypass"].get("undone", True):
+        reasons.append({"trafficBypassFailed": traffic["bypass"]})  # a piece failed and still stands
     return reasons
 
 

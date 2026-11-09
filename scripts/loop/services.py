@@ -47,6 +47,9 @@ SUPPLY_PERSIST = 20
 # as when the count rises (live: 22 to 33 a wake for months, never four rises in a row, and 160 shops
 # abandoned over 30 wakes while commercial demand stood at 0)
 SHOPS_PERSIST = 15
+# shops short of customers go to the planner only past this share of the city's shops: some always
+# close as the city churns (live: 23 of 806, scattered over the city, stopped play)
+SHOPS_SHARE = 0.05
 MAX_PLACEMENTS = 2  # new facilities per wake, so one bad assessment cannot spend the treasury
 # a fire burns a building down within a wake or two, so a fire never persists into a cluster that
 # gets a station: stations follow coverage instead (live: two stations for 19,000 people, 1,936 of
@@ -172,6 +175,13 @@ def open_land(city: City, label: str, clearance: float) -> dict[str, Any]:
                 end = (outcome["end"]["x"], outcome["end"]["z"])
             return {"ok": False, "stage": "landNotClear", "end": {"x": end[0], "z": end[1]}}
     return {"ok": False, "stage": "noLand"}
+
+
+def _shops() -> int:
+    """The city's commercial buildings."""
+    buildings = next((value for value in mt._request("GET", "/state/growables", query={"limit": 50000}).values()
+                      if isinstance(value, list)), [])
+    return sum(1 for building in buildings if building.get("service") == "Commercial")
 
 
 def place_site(label: str, prefab: str, site: dict[str, Any]) -> dict[str, Any]:
@@ -459,6 +469,8 @@ def solve(city: City, label: str, high_density: bool = False, offices: bool = Fa
                         continue
                 if not rising:
                     continue  # persisting with no empty commercial land left: the planner hears when it rises
+                if remedy.get("lever") == "slowCommercial" and counts[-1] < SHOPS_SHARE * _shops():
+                    continue  # the churn of a large city: the levers above go on working it
                 escalation = {"economyRising": name, "counts": counts, "lever": remedy.get("lever")}
                 if name == "Noise":  # the planner is told what makes the noise, not only that it rises
                     noise = mt.call_tool("diagnose_noise", {"limit": 8})

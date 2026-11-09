@@ -3461,10 +3461,19 @@ def _downstream_candidates(exit_: dict[str, Any], routes: dict[str, Any],
     return result
 
 
-def _bypass_piece_preview(prefab: str, piece: dict[str, Any], growables: dict[int, dict[str, Any]]) -> dict[str, Any]:
-    """One connector piece previewed natively. Growables under it can be cleared first (their own
-    bulldoze preview decides); any other building, a power line, unsafe terrain, a native tool
-    error or a collinear merge risk blocks the piece."""
+# small utility buildings a bypass may clear and the services loop builds again elsewhere: the loop
+# drops them on any free lot, and they stood in the way of most connectors (live: a water tower and a
+# wind turbine; a high school and a police station also did, which stay)
+BYPASS_RELOCATABLE = ("Water Tower", "Wind Turbine")
+BYPASS_RELOCATE_WEIGHT = 3  # a relocated building costs as much as three homes cleared
+
+
+def _bypass_piece_preview(prefab: str, piece: dict[str, Any], growables: dict[int, dict[str, Any]],
+                          relocatable: set[int] = frozenset()) -> dict[str, Any]:
+    """One connector piece previewed natively. Growables and relocatable buildings under it can be
+    cleared first (their own bulldoze preview decides); the ObjectCollision they cause goes with
+    them (live: a piece over six homes reported it, so no piece over a home was ever built). Any other building, a power line, unsafe terrain, another native tool error or a
+    collinear merge risk blocks the piece."""
     try:
         preview = _request("POST", "/commands/preview-network",
                            body={"roadPrefab": prefab, "start": piece["start"], "end": piece["end"]})
@@ -3474,14 +3483,52 @@ def _bypass_piece_preview(prefab: str, piece: dict[str, Any], growables: dict[in
     risky = bool(risk.get("risk") if isinstance(risk, dict) else risk)
     under = [int(item["id"]) for item in preview.get("buildingsUnderRoad") or []]
     clear = [item for item in under if item in growables]
-    blocking = [item for item in under if item not in growables]
+    relocate = [item for item in under if item in relocatable]
+    blocking = [item for item in under if item not in growables and item not in relocatable]
     errors = str(preview.get("toolErrors") or "None")
-    return {"buildable": bool((preview.get("terrainProfile") or {}).get("safe") and errors == "None"
+    clean = errors == "None" or (errors == "ObjectCollision" and (clear or relocate) and not blocking)
+    return {"buildable": bool((preview.get("terrainProfile") or {}).get("safe") and clean
                               and not blocking and not preview.get("powerLinesCrossed") and not risky),
-            "clearGrowables": clear, "blockingBuildings": blocking, "toolErrors": errors,
+            "clearGrowables": clear, "relocateBuildings": relocate, "blockingBuildings": blocking,
+            "toolErrors": errors,
             "powerLinesCrossed": len(preview.get("powerLinesCrossed") or []), "moveMiddleNodeRisk": risky,
             "terrainSafe": (preview.get("terrainProfile") or {}).get("safe"),
             "constructionCost": preview.get("constructionCost")}
+
+
+BYPASS_UPSTREAM_DEPTH = 4
+
+
+def _bypass_entries(routes: dict[str, Any], removed: set[int]) -> tuple[list[dict[str, Any]], int]:
+    """Where the hotspot's traffic comes from, outside the hotspot: each road entering the busiest
+    segment, followed upstream along its busiest feeder while it lies in the hotspot (live: the
+    entries carrying 700 vehicles were hotspot segments, so only side streets carrying 1 or 2 were
+    left and no hotspot got a bypass in 26 tries). The vehicles are the entry's, as many as the
+    feeder carries at most. Entries reached from a highway or ramp are left out and counted: a
+    town road does not bypass them (an outside link or interchange does)."""
+    entries, highway_fed = [], 0
+    for entry in sorted(routes.get("enteringFromSegments") or [], key=lambda item: -int(item.get("vehicles") or 0)):
+        vehicles, here, seen = int(entry.get("vehicles") or 0), entry, set()
+        for _ in range(BYPASS_UPSTREAM_DEPTH):
+            segment = int(here.get("segmentId") or 0)
+            if not segment or segment not in removed or segment in seen:
+                break
+            seen.add(segment)
+            feeders = [item for item in _request("GET", "/state/segment-routes",
+                                                 query={"id": segment, "limit": 20}).get("enteringFromSegments") or []
+                       if int(item.get("segmentId") or 0) and int(item["segmentId"]) not in seen]
+            if not feeders:
+                break
+            here = max(feeders, key=lambda item: int(item.get("vehicles") or 0))
+        segment = int(here.get("segmentId") or 0)
+        if not segment or segment in removed:
+            continue
+        if any(part in str(here.get("prefab")) for part in ("Highway", "Ramp")):
+            highway_fed += vehicles
+            continue
+        if all(int(item["segmentId"]) != segment for item in entries):
+            entries.append({**here, "vehicles": min(vehicles, int(here.get("vehicles") or vehicles))})
+    return entries, highway_fed
 
 
 def _propose_bypass_roads(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -3500,6 +3547,8 @@ def _propose_bypass_roads(arguments: dict[str, Any]) -> dict[str, Any]:
     growables = {int(item["id"]): item for item in next(
         (value for value in _request("GET", "/state/growables", query={"limit": 50000}).values()
          if isinstance(value, list)), [])}
+    relocatable = {int(item["id"]) for item in _request("GET", "/state/facilities", query={"limit": 50000})
+                   .get("facilities", []) if item.get("prefab") in BYPASS_RELOCATABLE}
     results = []
     for hotspot in assessment["hotspots"]:
         routes = _request("GET", "/state/segment-routes", query={"id": hotspot["busiestSegmentId"], "limit": 20})
@@ -3508,14 +3557,12 @@ def _propose_bypass_roads(arguments: dict[str, Any]) -> dict[str, Any]:
         if diagnosis["dominantExit"]:
             removed.add(diagnosis["dominantExit"]["segmentId"])
         graph, positions = mayor_bypass.local_graph(roads, removed)
-        entries = [entry for entry in routes.get("enteringFromSegments") or []
-                   if int(entry.get("segmentId") or 0) and int(entry["segmentId"]) not in removed
-                   and not any(part in str(entry.get("prefab")) for part in ("Highway", "Ramp"))][:2]
+        entries, highway_fed = _bypass_entries(routes, removed)
         destinations = [cell for cell in routes.get("destinationCells") or []
                         if abs(cell["center"]["x"]) <= mayor_traffic_remedies.OUTSIDE
                         and abs(cell["center"]["z"]) <= mayor_traffic_remedies.OUTSIDE][:3]
         demands, found = [], {}
-        for entry in entries:
+        for entry in entries[:2]:
             for cell in destinations:
                 source = (entry["position"]["x"], entry["position"]["z"])
                 target = (cell["center"]["x"], cell["center"]["z"])
@@ -3537,22 +3584,26 @@ def _propose_bypass_roads(arguments: dict[str, Any]) -> dict[str, Any]:
         previewed = []
         for candidate in ranked[:per_hotspot * 3]:
             candidate["pieces"] = mayor_bypass.pieces(candidate["from"], candidate["to"])
-            previews = [_bypass_piece_preview(prefab, piece, growables) for piece in candidate["pieces"]]
+            previews = [_bypass_piece_preview(prefab, piece, growables, relocatable) for piece in candidate["pieces"]]
             candidate["previews"] = previews
             candidate["buildable"] = all(preview["buildable"] for preview in previews)
             clear = sorted({item for preview in previews for item in preview.get("clearGrowables", [])})
             candidate["clearGrowables"] = clear
+            candidate["relocateBuildings"] = sorted({item for preview in previews
+                                                     for item in preview.get("relocateBuildings", [])})
             # like a service site: a home costs 2, any other growable 1, an abandoned one nothing
             candidate["displacementCost"] = sum(0 if growables[item].get("abandoned") else
                                                 2 if growables[item].get("service") == "Residential" else 1
-                                                for item in clear)
+                                                for item in clear) + \
+                BYPASS_RELOCATE_WEIGHT * len(candidate["relocateBuildings"])
             candidate["constructionCost"] = sum(int(preview.get("constructionCost") or 0) for preview in previews)
             previewed.append(candidate)
         previewed.sort(key=lambda item: (not item["buildable"], -item["servesVehicles"], item["displacementCost"],
                                          item["detour"]))
         results.append({"segmentIds": hotspot["segmentIds"], "center": hotspot["center"],
                         "meanDensity": hotspot["meanDensity"], "removedSegmentIds": sorted(removed),
-                        "demands": demands, "candidates": previewed[:per_hotspot]})
+                        "demands": demands, "highwayFedVehicles": highway_fed,
+                        "candidates": previewed[:per_hotspot]})
     return {"ok": True, "roadPrefab": prefab, "hotspots": results}
 
 

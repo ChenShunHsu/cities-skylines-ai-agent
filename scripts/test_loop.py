@@ -74,6 +74,37 @@ class GrowthTests(unittest.TestCase):
         self.assertEqual({"residential": 1, "commercial": 1, "workplace": 12}, growth.allowances(categories, state))
 
 
+    def test_homes_are_zoned_each_wake_while_workers_are_short(self):
+        categories = {use: {"demand": 45, "developableVacantCells": 108, "maximumAdditionalBlocksThisWake": 0}
+                      for use in growth.USES}
+        categories["workplace"]["demand"] = 50
+        state = {"absorption": {}, "stale": {}}
+        categories["workplace"]["maximumAdditionalBlocksThisWake"] = 3
+        allowed = growth.allowances(categories, state, 2)
+        self.assertEqual((growth.LABOUR_HOMES, 0), (allowed["residential"], allowed["workplace"]))
+        self.assertEqual(3, growth.allowances(categories, {"absorption": {}, "stale": {}}, 6)["workplace"])
+        self.assertEqual(0, growth.allowances(categories, {"absorption": {}, "stale": {}}, 6)["residential"])
+        self.assertEqual(0, growth.allowances(categories, {"absorption": {}, "stale": {}})["residential"])
+        categories["workplace"]["demand"] = 10  # the jobs are not wanted: no hurry for workers
+        self.assertEqual(0, growth.allowances(categories, {"absorption": {}, "stale": {}}, 2)["residential"])
+
+
+class ClearBuildingsTests(unittest.TestCase):
+    def test_a_building_already_gone_is_passed_and_the_rest_cleared(self):
+        def preview(name, args):
+            if args["id"] == 2:
+                raise roads.mt.BridgeRequestError('{"ok": false, "error": "Building was not found: 2"}')
+            return {"safe": True}
+        with mock.patch.object(roads.mt, "call_tool", side_effect=preview),                 mock.patch.object(roads.protocol, "run", return_value={"ok": True}) as run:
+            result = roads.clear_buildings("t", [1, 2, 3])
+        self.assertEqual({"ok": True, "cleared": [1, 3]}, result)
+        self.assertEqual(2, run.call_count)
+        with mock.patch.object(roads.mt, "call_tool",
+                               side_effect=roads.mt.BridgeRequestError('{"ok": false, "error": "busy"}')):
+            with self.assertRaises(roads.mt.BridgeRequestError):
+                roads.clear_buildings("t", [1])
+
+
 class ExpansionTests(unittest.TestCase):
     def area(self, x, clear=True):
         return {"center": {"x": x, "z": 0}, "areaSquareMeters": 90000, "fishbone": {"collectorHeadingDegrees": 90,
@@ -1380,14 +1411,20 @@ class HighwayExitTests(unittest.TestCase):
 class BypassWorthTests(unittest.TestCase):
     def test_a_bypass_serving_few_vehicles_for_the_buildings_it_clears_is_not_built(self):
         hotspot = {"segmentIds": [1, 2, 3]}
-        poor = {"buildable": True, "servesVehicles": 4, "clearGrowables": list(range(9)), "pieces": [],
+        poor = {"buildable": True, "servesVehicles": 4, "clearGrowables": list(range(9)),
+                "pieces": [{"end": {"x": 90, "z": 0}}], "previews": [{"clearGrowables": list(range(9))}],
                 "from": {"x": 0, "z": 0}, "length": 228.1, "detour": 1.22}
-        good = {**poor, "servesVehicles": 40, "clearGrowables": [1, 2]}
+        good = {**poor, "servesVehicles": 40, "clearGrowables": [1, 2], "previews": [{"clearGrowables": [1, 2]}]}
+        # a water tower in the way counts as three homes: 40 vehicles carry two homes and six towers
+        self.assertTrue(traffic.worth_building({**good, "relocateBuildings": list(range(6))}))
+        self.assertFalse(traffic.worth_building({**good, "relocateBuildings": list(range(7))}))
         for candidate, built in ((poor, False), (good, True)):
             proposal = {"hotspots": [{"segmentIds": [1, 2, 3], "candidates": [candidate]}]}
             with mock.patch.object(traffic.mt, "call_tool", return_value=proposal), \
                     mock.patch.object(traffic.roads, "clear_buildings",
-                                      return_value={"ok": True, "cleared": candidate["clearGrowables"]}) as clear:
+                                      return_value={"ok": True, "cleared": candidate["clearGrowables"]}) as clear, \
+                    mock.patch.object(traffic.roads, "preview", return_value=(True, {}, {})), mock.patch.object(traffic.roads, "build",
+                                      return_value={"ok": True, "segmentId": 5, "end": {"x": 90, "z": 0}}):
                 result = traffic.bypass(None, "a", hotspot)
             self.assertEqual(built, result is not None)
             self.assertEqual(built, clear.called)
@@ -1545,12 +1582,15 @@ class OutsideLinkTests(unittest.TestCase):
         self.assertEqual(["transit", "bypass"], traffic.kinds_for({"diagnosis": {"externalShare": 0.3}},
                                                                    dict(remedies), stats))
 
-    def watch(self, link):
+    def watch(self, link, pending=False):
         hotspot = {"segmentIds": [1, 2, 3], "meanDensity": 99.0, "segmentCount": 3, "center": self.CENTER,
                    "diagnosis": {"externalShare": 0.5}, "remedies": [{"kind": "transit", "reason": "cars"}]}
         tried = [{"key": "hotspot-1", "kind": kind, "wake": 9, "meanDensity": 99, "segments": 3,
                   "detail": {"target": target}, "verdict": "failed"} for kind, target in
                  (("transit", "line"), ("bypass", "connector"))]
+        if pending:  # an exit ramp built last wake, still to be judged
+            tried.append({"key": "hotspot-1", "kind": "highwayExit", "wake": 10, "meanDensity": 99, "segments": 3,
+                          "detail": {"target": "exit"}, "verdict": None})
         saved = {}
         city = mock.Mock()
         city.load_state.return_value = {"wake": 10, "hotspots": [{"segmentIds": [1, 2, 3], "seen": 2,
@@ -1583,6 +1623,13 @@ class OutsideLinkTests(unittest.TestCase):
         self.assertEqual("hotspot-1", summary["escalation"]["key"])
         self.assertEqual("nothingSelectable", summary["outsideLinkNone"]["reason"])
         self.assertNotIn("hotspot-1", state.get("outsideLinked", {}))
+
+
+    def test_a_hotspot_waits_for_the_verdict_on_its_last_remedy_before_the_planner(self):
+        summary, state, _ = self.watch({"ok": None, "reason": "nothingSelectable", "prefab": "Large Road"},
+                                       pending=True)
+        self.assertNotIn("escalation", summary)
+        self.assertEqual(11, state["spent"]["hotspot-1"])
 
 
 class ServiceTests(unittest.TestCase):
@@ -1626,6 +1673,22 @@ class ServiceTests(unittest.TestCase):
                 reports = [services.solve(city, "t") for _ in range(4)]
         self.assertEqual(1, rezone.call_count)  # the fourth wake: four wakes at 20
         self.assertEqual([], reports[-1]["escalations"])
+
+    def test_rising_shops_short_of_customers_go_to_the_planner_only_past_a_share_of_the_shops(self):
+        def run(shops):
+            with tempfile.TemporaryDirectory() as folder:
+                city = city_module.City({"instanceId": "test"}, Path(folder))
+                reports = []
+                for count in (9, 10, 18, 23):
+                    assessment = {"problems": [{"problem": "NoCustomers", "count": count, "buildingIds": [5],
+                                                "remedy": {"kind": "economy", "lever": "slowCommercial"}}]}
+                    with mock.patch.object(services.mt, "call_tool", return_value=assessment), \
+                            mock.patch.object(services, "_shops", return_value=shops), \
+                            mock.patch.object(services.growth, "rezone_idle_shops", return_value=[]):
+                        reports.append(services.solve(city, "t"))
+                return reports[-1]["escalations"]
+        self.assertEqual([], run(806))  # 23 of 806: churn
+        self.assertEqual("NoCustomers", run(300)[0]["economyRising"])
 
     def test_streak_counts_consecutive_wakes_only(self):
         state = {"wake": 1}
@@ -2524,6 +2587,64 @@ class CapacityIdleTests(unittest.TestCase):
         self.assertIn("capacityIdle", [action.get("stage") for action in solved["actions"]])
 
 
+class BypassPiecewiseTests(unittest.TestCase):
+    def test_each_piece_clears_only_what_lies_under_it_and_a_failed_piece_takes_the_built_down(self):
+        candidate = {"buildable": True, "servesVehicles": 40, "clearGrowables": [1, 2, 3], "from": {"x": 0, "z": 0},
+                     "pieces": [{"end": {"x": 90, "z": 0}}, {"end": {"x": 180, "z": 0}}],
+                     "previews": [{"clearGrowables": [1]}, {"clearGrowables": [2, 3]}], "length": 180, "detour": 1.1}
+        proposal = {"hotspots": [{"segmentIds": [1, 2, 3], "candidates": [candidate]}]}
+        builds = iter([{"ok": True, "segmentId": 5, "end": {"x": 90, "z": 0}}, {"ok": False, "stage": "preview"}])
+        with mock.patch.object(traffic.mt, "call_tool", return_value=proposal), \
+                mock.patch.object(traffic.roads, "clear_buildings",
+                                  side_effect=lambda label, ids: {"ok": True, "cleared": ids}) as clear, \
+                mock.patch.object(traffic.roads, "preview", return_value=(True, {}, {})), mock.patch.object(traffic.roads, "build", side_effect=lambda *a: next(builds)), \
+                mock.patch.object(traffic.protocol, "run", return_value={"ok": True}) as run:
+            result = traffic.bypass(None, "a", {"segmentIds": [1, 2, 3]})
+        self.assertEqual([[1], [2, 3]], [call.args[1] for call in clear.call_args_list])
+        self.assertEqual(("piece1", [5], True), (result["stage"], result["removed"], result["undone"]))
+        self.assertEqual({"entityType": "netSegment", "id": 5}, run.call_args.args[2])
+
+
+    def test_an_error_mid_way_takes_the_built_pieces_down_before_it_rises(self):
+        candidate = {"buildable": True, "servesVehicles": 40, "clearGrowables": [1], "from": {"x": 0, "z": 0},
+                     "pieces": [{"end": {"x": 90, "z": 0}}, {"end": {"x": 180, "z": 0}}],
+                     "previews": [{}, {"clearGrowables": [2]}], "length": 180, "detour": 1.1}
+        proposal = {"hotspots": [{"segmentIds": [1, 2, 3], "candidates": [candidate]}]}
+
+        def clear(label, ids):
+            if ids:
+                raise RuntimeError("game busy")
+            return {"ok": True, "cleared": []}
+        with mock.patch.object(traffic.mt, "call_tool", return_value=proposal),                 mock.patch.object(traffic.roads, "clear_buildings", side_effect=clear),                 mock.patch.object(traffic.roads, "preview", return_value=(True, {}, {})), mock.patch.object(traffic.roads, "build", return_value={"ok": True, "segmentId": 5, "end": {"x": 90, "z": 0}}),                 mock.patch.object(traffic.protocol, "run", return_value={"ok": True}) as run:
+            with self.assertRaises(RuntimeError):
+                traffic.bypass(None, "a", {"segmentIds": [1, 2, 3]})
+        self.assertEqual({"entityType": "netSegment", "id": 5}, run.call_args.args[2])
+
+
+    def test_a_piece_stopped_by_more_than_its_buildings_is_refused_before_they_are_cleared(self):
+        candidate = {"buildable": True, "servesVehicles": 40, "clearGrowables": [1, 2], "from": {"x": 0, "z": 0},
+                     "pieces": [{"end": {"x": 90, "z": 0}}, {"end": {"x": 180, "z": 0}}],
+                     "previews": [{"clearGrowables": [1]}, {"clearGrowables": [2]}], "length": 180, "detour": 1.1}
+        proposal = {"hotspots": [{"segmentIds": [1, 2, 3], "candidates": [candidate]}]}
+        seen = iter([(False, {}, {"obstacles": [{"id": 1, "service": "Residential"}]}),
+                     (False, {}, {"valid": False, "errors": "ObjectCollision"})])  # a collision with no building
+        with mock.patch.object(traffic.mt, "call_tool", return_value=proposal),                 mock.patch.object(traffic.roads, "preview", side_effect=lambda *a: next(seen)),                 mock.patch.object(traffic.roads, "clear_buildings",
+                                  side_effect=lambda label, ids: {"ok": True, "cleared": ids}) as clear,                 mock.patch.object(traffic.roads, "build", return_value={"ok": True, "segmentId": 5, "end": {"x": 90, "z": 0}}),                 mock.patch.object(traffic.protocol, "run", return_value={"ok": True}):
+            result = traffic.bypass(None, "a", {"segmentIds": [1, 2, 3]})
+        self.assertEqual([[1]], [call.args[1] for call in clear.call_args_list])  # the second piece cleared nothing
+        self.assertEqual(("piece1", "beforeClearing", True), (result["stage"], result["pieceStage"], result["undone"]))
+
+
+class BypassNoneTests(unittest.TestCase):
+    def test_a_hotspot_with_no_connector_to_build_is_not_counted_against_bypasses(self):
+        state = {"kindStats": {}, "actions": [], "wake": 3}
+        hotspot = {"meanDensity": 99, "segmentCount": 4}
+        traffic.record(state, "h", "bypass", hotspot, {"target": "connector", "none": True}, "none")
+        traffic.record(state, "h", "bypass", hotspot, {"target": "connector"}, "failed")
+        self.assertEqual({"bypass": {"worked": 0, "failed": 1}}, state["kindStats"])
+        self.assertEqual(2, len(state["actions"]))
+
+
 class CashTrendTests(unittest.TestCase):
     def test_cash_falling_over_three_wakes_counts_as_a_deficit(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -2578,6 +2699,72 @@ class SurplusCommerceTests(unittest.TestCase):
         return {"commercial": {"demand": shops, "developableVacantCells": empty},
                 "workplace": {"demand": work}, "residential": {"demand": homes}}
 
+    def test_empty_cells_are_read_from_the_block_masks(self):
+        # rows 5: valid 4+4+2+2+0 cells, the first four rows occupied over their valid cells
+        block = {"rows": 5, "validMask": "FFFFFF000303FFFF", "occupiedMask1": "000000000F0F0F0F", "occupiedMask2": "0"}
+        self.assertEqual(0, growth.vacant_cells(block))
+        self.assertEqual(12, growth.vacant_cells({**block, "occupiedMask1": "0"}))
+        self.assertEqual(8, growth.vacant_cells({**block, "occupiedMask1": "000000000000000F"}))
+        self.assertEqual(0, growth.vacant_cells({"rows": 4, "validMask": "zz"}))
+
+    def test_a_partly_built_block_is_zoned_only_where_the_bridge_finds_empty_cells(self):
+        with mock.patch.object(growth.mt, "_request", return_value={"ok": True, "dryRun": True, "vacantCells": 6}) as read:
+            self.assertFalse(growth._held(5, "ResidentialHigh", partial=True))
+        self.assertTrue(read.call_args.kwargs["body"]["vacantCellsOnly"])
+        # an older Bridge knows no vacantCellsOnly: it skips the block and reports no vacant cells
+        with mock.patch.object(growth.mt, "_request", return_value={"ok": True, "skippedOccupiedBlocks": 1}):
+            self.assertTrue(growth._held(5, "ResidentialHigh", partial=True))
+
+    def test_a_shop_block_with_empty_cells_beside_its_shops_is_surplus_land(self):
+        blocks = [{"blockId": 1, "zone": "CommercialHigh", "zonedCells": 16, "occupancyClear": False, "rows": 4,
+                   "validMask": "FFFFFFFF", "occupiedMask1": "0000000F"},  # 12 empty
+                  {"blockId": 2, "zone": "CommercialHigh", "zonedCells": 16, "occupancyClear": False, "rows": 4,
+                   "validMask": "FFFFFFFF", "occupiedMask1": "000F0F0F"},  # 4 empty
+                  {"blockId": 3, "zone": "Office", "zonedCells": 16, "occupancyClear": True, "rows": 4}]
+        with mock.patch.object(growth.mt, "_request", return_value={"blocks": blocks}):
+            self.assertEqual([1], [b["blockId"] for b in growth._surplus_commerce()])
+
+    def test_homes_come_before_offices_on_surplus_shop_land_while_workers_are_short(self):
+        runs = []
+        with mock.patch.object(growth.mt, "_request", return_value={"blocks": self.BLOCKS}), \
+                mock.patch.object(growth, "_town", return_value=(0.0, 0.0)), \
+                mock.patch.object(growth, "_held", return_value=False), \
+                mock.patch.object(growth.mt, "_land_use_context",
+                                  return_value={"growables": [], "polluters": [], "corners": [], "through": []}), \
+                mock.patch.object(growth.land_use, "classify", return_value={"allowed": ["residential", "office"]}), \
+                mock.patch.object(growth.protocol, "run",
+                                  side_effect=lambda label, tool, args: runs.append(args) or {"ok": True, "regressionOk": True}):
+            done = growth.rezone_surplus_commerce("a", self.categories(), high_density=True, offices=True,
+                                                  workers_short=True)
+        self.assertEqual({"ResidentialHigh"}, {item["zone"] for item in done})
+        with mock.patch.object(growth.mt, "_request", return_value={"blocks": self.BLOCKS}),                 mock.patch.object(growth, "_town", return_value=(0.0, 0.0)),                 mock.patch.object(growth, "_held", return_value=False),                 mock.patch.object(growth.mt, "_land_use_context",
+                                  return_value={"growables": [], "polluters": [], "corners": [], "through": []}),                 mock.patch.object(growth.land_use, "classify", return_value={"allowed": ["commercial"]}),                 mock.patch.object(growth.protocol, "run") as run:
+            self.assertEqual([], growth.rezone_surplus_commerce("a", self.categories(), high_density=True,
+                                                                offices=True, workers_short=True))
+        self.assertFalse(run.called)  # land fit only for offices waits while workers are short
+        done, _ = self.rezone(self.categories(), allowed=("commercial",))
+        self.assertEqual({"Office"}, {item["zone"] for item in done})  # shop land takes offices when workers are not short
+        self.assertEqual([], self.rezone(self.categories(work=10), allowed=("commercial",))[1])  # no jobs wanted
+
+    def test_a_block_the_game_holds_for_a_standing_building_is_passed_not_failed(self):
+        def request(method, path, query=None, body=None):
+            if path == "/commands/set-zone":
+                held = body["blockId"] == 1
+                return {"ok": True, "dryRun": True, "skippedOccupiedBlocks": int(held), "changedCells": 0 if held else 16}
+            return {"blocks": self.BLOCKS}
+        runs = []
+        with mock.patch.object(growth.mt, "_request", side_effect=request), \
+                mock.patch.object(growth, "_town", return_value=(0.0, 0.0)), \
+                mock.patch.object(growth.mt, "_land_use_context",
+                                  return_value={"growables": [], "polluters": [], "corners": [], "through": []}), \
+                mock.patch.object(growth.land_use, "classify", return_value={"allowed": ["office"]}), \
+                mock.patch.object(growth.protocol, "run",
+                                  side_effect=lambda label, tool, args: runs.append(args) or {"ok": True, "regressionOk": True}):
+            done = growth.rezone_surplus_commerce("a", self.categories(), high_density=True, offices=True)
+        self.assertNotIn(1, [item["blockId"] for item in done])
+        self.assertTrue(all(item["ok"] for item in done))
+        self.assertEqual(growth.SURPLUS_PER_WAKE, len(runs))
+
     def test_empty_shops_no_one_wants_become_offices_while_jobs_are_wanted_more(self):
         done, runs = self.rezone(self.categories())
         self.assertEqual(growth.SURPLUS_PER_WAKE, len(runs))
@@ -2589,7 +2776,7 @@ class SurplusCommerceTests(unittest.TestCase):
         self.assertEqual({"ResidentialHigh"}, {item["zone"] for item in done})
 
     def test_land_fit_only_for_shops_takes_offices_when_shops_are_in_surplus(self):
-        done, runs = self.rezone(self.categories(work=10, homes=40), allowed=("commercial",))
+        done, runs = self.rezone(self.categories(work=25, homes=40), allowed=("commercial",))
         self.assertEqual({"Office"}, {item["zone"] for item in done})
         self.assertEqual([], self.rezone(self.categories(), offices=False, allowed=("commercial",))[1])
 

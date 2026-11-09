@@ -5309,5 +5309,41 @@ class FiscalGameTimeTests(unittest.TestCase):
         self.assertFalse(MAYOR_TOOLS._fiscal_game_days_passed(state, None))  # no clock read: real time rules
 
 
+
+class BypassRelocateTests(unittest.TestCase):
+    def preview(self, errors, under):
+        reply = {"toolErrors": errors, "terrainProfile": {"safe": True},
+                 "buildingsUnderRoad": [{"id": item} for item in under]}
+        with mock.patch.object(MAYOR_TOOLS, "_request", return_value=reply):
+            return MAYOR_TOOLS._bypass_piece_preview("Basic Road", {"start": {}, "end": {}}, {1: {}}, {5})
+
+    def test_a_water_tower_in_the_way_is_cleared_with_its_collision_and_a_school_blocks(self):
+        piece = self.preview("ObjectCollision", [1, 5])
+        self.assertEqual((True, [1], [5], []), (piece["buildable"], piece["clearGrowables"],
+                                                piece["relocateBuildings"], piece["blockingBuildings"]))
+        self.assertFalse(self.preview("ObjectCollision", [5, 6])["buildable"])
+        self.assertFalse(self.preview("ObjectCollision", [])["buildable"])  # another network in the way
+        self.assertTrue(self.preview("ObjectCollision", [1])["buildable"])  # the homes it clears collide
+        self.assertFalse(self.preview("TooShort", [5])["buildable"])
+
+
+class BypassEntryTests(unittest.TestCase):
+    def test_entries_inside_the_hotspot_are_followed_upstream_and_highways_left_to_links(self):
+        feeders = {
+            2: [{"segmentId": 3, "vehicles": 400, "prefab": "Small 4 Lane Road"}, {"segmentId": 9, "vehicles": 5}],
+            3: [{"segmentId": 4, "vehicles": 380, "prefab": "Basic Road"}],
+            6: [{"segmentId": 7, "vehicles": 90, "prefab": "Highway"}],
+        }
+        routes = {"enteringFromSegments": [
+            {"segmentId": 6, "vehicles": 100, "prefab": "Small 4 Lane Road"},
+            {"segmentId": 2, "vehicles": 700, "prefab": "Small 4 Lane Road"},
+            {"segmentId": 8, "vehicles": 2, "prefab": "Basic Road"}]}
+        reply = lambda method, path, query=None, **_: {"enteringFromSegments": feeders.get(query["id"], [])}
+        with mock.patch.object(MAYOR_TOOLS, "_request", side_effect=reply):
+            entries, highway_fed = MAYOR_TOOLS._bypass_entries(routes, {1, 2, 3, 6})
+        # the 700 entering by hotspot segments 2 and 3 come from road 4, which carries 380 of them
+        self.assertEqual([(4, 380), (8, 2)], [(item["segmentId"], item["vehicles"]) for item in entries])
+        self.assertEqual(100, highway_fed)
+
 if __name__ == "__main__":
     unittest.main()

@@ -43,6 +43,12 @@ ABSORB_DEMAND = 30
 ABSORB_MAX_BLOCKS = 12
 CELLS_PER_BLOCK = 24
 STALE_WAKES = 3
+# workers short: the jobs wait for people, so homes are zoned each wake while they are wanted, not
+# only once a vacancy has sat for STALE_WAKES (live: unemployment 2%, workplace demand 50,
+# residential demand 45 held at a 24-cell tier, and the town shrank by 0.5% a wake)
+LABOUR_SHORT = 3  # unemployment, percent, at or below which workers are short
+LABOUR_DEMAND = 30  # workplace demand that says the jobs are still wanted
+LABOUR_HOMES = 2  # residential blocks a wake while workers are short (and none for jobs)
 # cells the vacancy must fall by, from where the wait began, to count as being built on: scraps a
 # block cannot grow on wobble it by a few cells either way (live: 77, 86, 77 cells for four wakes at
 # 27,200 people with residential demand at 48, and no block zoned)
@@ -100,7 +106,15 @@ def stale_allowance(category: dict[str, Any], record: dict[str, Any]) -> tuple[i
     return None, record
 
 
-def allowances(categories: dict[str, Any], state: dict[str, Any]) -> dict[str, int]:
+def labour_short(categories: dict[str, Any], unemployment: float | None) -> bool:
+    """Workers are short: few without work, jobs still wanted, and homes wanted too."""
+    return unemployment is not None and unemployment <= LABOUR_SHORT \
+        and (categories["workplace"].get("demand") or 0) >= LABOUR_DEMAND \
+        and (categories["residential"].get("demand") or 0) >= LABOUR_DEMAND
+
+
+def allowances(categories: dict[str, Any], state: dict[str, Any],
+               unemployment: float | None = None) -> dict[str, int]:
     result = {}
     for use in USES:
         category = categories[use]
@@ -108,6 +122,11 @@ def allowances(categories: dict[str, Any], state: dict[str, Any]) -> dict[str, i
         stale, state["stale"][use] = stale_allowance(category, state["stale"].get(use, {}))
         absorbed = absorbed_allowance(category, state["absorption"].get(use))
         result[use] = max(base, stale or 0, absorbed or 0)
+    if labour_short(categories, unemployment):
+        # and no more jobs: zoned now they would stand short of workers too (live: six office blocks
+        # zoned in the wake unemployment reached 2%)
+        result["residential"] = max(result["residential"], LABOUR_HOMES)
+        result["workplace"] = 0
     return result
 
 
@@ -661,6 +680,12 @@ REZONE_PER_WAKE = 4
 # workplace demand 59 and unemployment going 2% to 6%
 COMMERCE_SURPLUS = 200
 SURPLUS_PER_WAKE = 8
+# a commercial block with at least this many empty cells beside its shops is surplus land too: the
+# zoning keeps the occupied cells (live: 600 commercial cells stood empty, scattered over blocks
+# with a shop or two, and only blocks wholly empty were rezoned, one or none a wake)
+SURPLUS_BLOCK_CELLS = 8
+SURPLUS_JOBS = 20  # workplace demand below which surplus shop land takes no offices
+BLOCK_COLUMNS = 4  # a zone block is four cells wide; its masks give each row eight bits
 
 
 def rezone_idle_shops(label: str, shop_ids: list[int], high_density: bool = False,
@@ -682,6 +707,25 @@ def rezone_idle_shops(label: str, shop_ids: list[int], high_density: bool = Fals
     return _rezone([item for item in near if item[0] <= REZONE_REACH], REZONE_PER_WAKE, high_density, offices)
 
 
+def vacant_cells(block: dict[str, Any]) -> int:
+    """The block's valid cells no building stands on, from its cell masks (bit row * 8 + column)."""
+    try:
+        valid = int(block.get("validMask") or "0", 16)
+        taken = int(block.get("occupiedMask1") or "0", 16) | int(block.get("occupiedMask2") or "0", 16)
+    except ValueError:
+        return 0
+    free = valid & ~taken
+    return sum(1 for row in range(int(block.get("rows") or 0)) for column in range(BLOCK_COLUMNS)
+               if free >> (row * 8 + column) & 1)
+
+
+def _surplus_commerce() -> list[dict[str, Any]]:
+    """Commercial blocks wholly empty or with SURPLUS_BLOCK_CELLS empty beside their shops."""
+    return [b for b in mt._request("GET", "/state/zone-blocks", query={"limit": 5000}).get("blocks", [])
+            if (b.get("zonedCells") or 0) > 0 and str(b.get("zone", "")).startswith("Commercial")
+            and (b.get("occupancyClear") or vacant_cells(b) >= SURPLUS_BLOCK_CELLS)]
+
+
 def _empty_commerce() -> list[dict[str, Any]]:
     return [b for b in mt._request("GET", "/state/zone-blocks", query={"limit": 5000}).get("blocks", [])
             if (b.get("zonedCells") or 0) > 0 and b.get("occupancyClear")
@@ -689,7 +733,7 @@ def _empty_commerce() -> list[dict[str, Any]]:
 
 
 def rezone_surplus_commerce(label: str, categories: dict[str, dict[str, Any]], high_density: bool = False,
-                            offices: bool = False) -> list[dict[str, Any]]:
+                            offices: bool = False, workers_short: bool = False) -> list[dict[str, Any]]:
     """Empty commercial land while no one wants shops (demand 0 and COMMERCE_SURPLUS cells empty)
     is zoned for what is wanted: offices before homes while workplaces are wanted more (the jobs
     the closed shops took with them), homes otherwise, as the land allows."""
@@ -700,9 +744,27 @@ def rezone_surplus_commerce(label: str, categories: dict[str, dict[str, Any]], h
     homes = (categories.get("residential") or {}).get("demand") or 0
     town = _town()
     blocks = sorted(((math.dist((b["center"]["x"], b["center"]["z"]), town) if town else 0.0, b)
-                     for b in _empty_commerce()), key=lambda item: item[0])
-    return _rezone(blocks, SURPLUS_PER_WAKE, high_density, offices, offices_first=offices and work > homes,
-                   shop_land=True)
+                     for b in _surplus_commerce()), key=lambda item: item[0])
+    # while workers are short, homes only: offices would stand short of workers too, and land fit
+    # only for them waits (live: all eight blocks of a wake at 2% unemployment became offices)
+    # and only while jobs are wanted (live: workplace demand 10 after sixteen office blocks, and seven
+    # of the next eight blocks became offices again)
+    return _rezone(blocks, SURPLUS_PER_WAKE, high_density, offices and not workers_short and work >= SURPLUS_JOBS,
+                   offices_first=offices and work > homes, shop_land=True)
+
+
+def _held(block_id: int, zone: str, partial: bool = False) -> bool:
+    """Whether the game keeps the block's zoning for something standing on it, though the block
+    listing reads it clear (live: a building reaching over from the next block; the zoning changed
+    no cells, and the half-failed rezoning stopped play)."""
+    try:
+        preview = mt._request("POST", "/commands/set-zone", body={"zone": zone, "blockId": block_id, "dryRun": True,
+                                                                 "preserveOccupied": True, "vacantCellsOnly": partial})
+    except (mt.BridgeRequestError, RuntimeError):
+        return False
+    if partial:  # a Bridge without vacantCellsOnly reports no vacant cells and skips the block
+        return not preview.get("vacantCells")
+    return bool(preview.get("skippedOccupiedBlocks")) and not preview.get("changedCells")
 
 
 def _rezone(near: list[tuple[float, dict[str, Any]]], cap: int, high_density: bool, offices: bool,
@@ -729,8 +791,11 @@ def _rezone(near: list[tuple[float, dict[str, Any]]], cap: int, high_density: bo
             zone = LOW_ZONE["office"]
         else:
             continue
+        partial = not block.get("occupancyClear")
+        if _held(block["blockId"], zone, partial):
+            continue
         outcome = protocol.run(f"rezone-{zone}-{block['blockId']}", "zone_block",
-                               {"zone": zone, "blockId": block["blockId"]})
+                               {"zone": zone, "blockId": block["blockId"], **({"vacantCellsOnly": True} if partial else {})})
         done.append({"blockId": block["blockId"], "zone": zone, "ok": outcome["ok"],
                      "regressionOk": outcome["regressionOk"], "distance": round(distance)})
     return done
@@ -865,7 +930,8 @@ def grow(city: City, label: str, high_density: bool = False, hold_land: str | No
     outside = ensure_outside(city, label, state)
     capacity = mt.call_tool("inspect_growth_capacity", {"limit": 1})
     categories = capacity["growthPacing"]["categories"]
-    allowed = allowances(categories, state)
+    unemployment = (mt.city_health().get("employment") or {}).get("unemployment")
+    allowed = allowances(categories, state, unemployment)
     report: dict[str, Any] = {"allowed": allowed, "zoned": [], "densified": [], "exhausted": [], "short": [],
                               "demand": {use: categories[use].get("demand") for use in USES},
                               "vacancy": {use: categories[use].get("developableVacantCells") for use in USES},
@@ -887,7 +953,8 @@ def grow(city: City, label: str, high_density: bool = False, hold_land: str | No
                 if center is None:
                     center = mt.call_tool("propose_zoning_blocks", {"use": use, "limit": 1}).get("townCenter")
                 report["densified"] += densify(use, DENSIFY_PER_WAKE, tuple(center) if center else None, label)
-    surplus = rezone_surplus_commerce(label, categories, high_density, offices)
+    surplus = rezone_surplus_commerce(label, categories, high_density, offices,
+                                      labour_short(categories, unemployment))
     if surplus:
         report["rezonedSurplus"] = surplus
     # new land for the use that most needs it, once its own blocks fall short of what it may zone:
