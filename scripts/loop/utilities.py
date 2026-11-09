@@ -175,6 +175,12 @@ def repair_water(label: str, city: City | None = None) -> dict[str, Any]:
         if not plan.get("safe"):
             steps.append({"step": step, "planSafe": False, "risks": plan.get("risks")})
             break
+        if plan.get("actionRequired") is False:
+            # the buildings read dry have water by now: nothing to lay (live: the planner answered
+            # safe with no planId and the wake failed three times on it)
+            steps.append({"step": step, "alreadyServed": len(targets)})
+            caught_up = True
+            break
         piped.update(int(target["id"]) for target in plan["targetBuildings"])
         outcome = protocol.run(f"svcpipe-{label}-{step}", "build_water_service_pipe", {
             "planId": plan["planId"], "segments": plan["segments"], "intakeBuildingId": intake,

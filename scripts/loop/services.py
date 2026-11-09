@@ -22,11 +22,12 @@ Displacement is not capped: sites rank by it, and each building gets its own bul
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Callable
 
 from loop import growth, industry, protocol, roads, utilities
 from loop.city import City, mt
 from mayor import problems as mayor_problems
+from mayor import transit as mayor_transit
 
 PERSIST = 3
 IMMEDIATE_CLUSTER = 3
@@ -50,6 +51,12 @@ SHOPS_PERSIST = 15
 # shops short of customers go to the planner only past this share of the city's shops: some always
 # close as the city churns (live: 23 of 806, scattered over the city, stopped play)
 SHOPS_SHARE = 0.05
+# industry short of goods goes to the planner, once no district can supply it, only past this share
+# of the city's industry, as shops do (live: 21 of 815 stopped play)
+INDUSTRY_SHARE = 0.05
+# any other economy problem rising goes to the planner only past this share of every growable
+# (live: 9 polluted buildings of some 6,400, rising by one a wake, stopped play)
+ECONOMY_SHARE = 0.01
 MAX_PLACEMENTS = 2  # new facilities per wake, so one bad assessment cannot spend the treasury
 # a fire burns a building down within a wake or two, so a fire never persists into a cluster that
 # gets a station: stations follow coverage instead (live: two stations for 19,000 people, 1,936 of
@@ -177,11 +184,47 @@ def open_land(city: City, label: str, clearance: float) -> dict[str, Any]:
     return {"ok": False, "stage": "noLand"}
 
 
-def _shops() -> int:
-    """The city's commercial buildings."""
+def _growing(service: str | None = None) -> int:
+    """The city's growables of the service, or all of them."""
     buildings = next((value for value in mt._request("GET", "/state/growables", query={"limit": 50000}).values()
                       if isinstance(value, list)), [])
-    return sum(1 for building in buildings if building.get("service") == "Commercial")
+    return sum(1 for building in buildings if service is None or building.get("service") == service)
+
+
+def _shops() -> int:
+    """The city's commercial buildings."""
+    return _growing("Commercial")
+
+
+Point = tuple[float, float]
+
+
+def road_router() -> Callable[[Point, Point], float]:
+    """How far by road one point is from another over the city's roads as they stand now, read once:
+    math.inf when no road joins them."""
+    segments = mt._request("GET", "/state/networks", query={"limit": 50000, "service": "Road"}).get("segments") or []
+    graph = mayor_transit.road_graph(segments)
+    positions = mayor_transit.node_positions(segments)
+
+    def route(start: Point, goal: Point) -> float:
+        a = mayor_transit.nearest_node(graph, positions, start)
+        b = mayor_transit.nearest_node(graph, positions, goal)
+        path = mayor_transit.shortest_path(graph, a, b) if a is not None and b is not None else []
+        return sum(math.dist(positions[p], positions[q]) for p, q in zip(path, path[1:])) if path else math.inf
+    return route
+
+
+def fire_route(center: dict[str, float], route: Callable[[Point, Point], float] | None = None) -> float | None:
+    """How far by road the nearest fire stations' engines drive to the point (the shortest of the
+    FIRE_STATIONS_TRIED nearest in a line), math.inf when no road joins them, None with no station."""
+    stations = [(item["position"]["x"], item["position"]["z"]) for item in mt._request(
+        "GET", "/state/facilities", query={"limit": 5000, "service": "FireDepartment"}).get("facilities") or []]
+    if not stations:
+        return None
+    point = (center["x"], center["z"])
+    route = route or road_router()
+    return min(route(station, point)
+               for station in sorted(stations, key=lambda item: math.dist(item, point))[:FIRE_STATIONS_TRIED])
 
 
 def place_site(label: str, prefab: str, site: dict[str, Any]) -> dict[str, Any]:
@@ -206,11 +249,13 @@ def place_site(label: str, prefab: str, site: dict[str, Any]) -> dict[str, Any]:
             "cleared": cleared}
 
 
-def place_near(label: str, prefab: str, near: dict[str, float], polluting: bool = False) -> dict[str, Any]:
+def place_near(label: str, prefab: str, near: dict[str, float], polluting: bool = False,
+               reaches: Callable[[dict[str, Any]], bool] | None = None) -> dict[str, Any]:
     """The prefab on the first proposed site whose growables may all be cleared: every one's bulldoze
     preview is read before any is cleared, and a site with one the game would not release is passed
     for the next (live: a school's first site held a building whose clearing was unsafe, and the
-    other sites were never tried)."""
+    other sites were never tried). A site that reaches(site) rejects is left out (stage noSite when
+    none is left)."""
     sites: dict[str, Any] = {"sites": []}
     for radius in (POLLUTER_RADII if polluting else (500, 1000)):
         sites = mt.call_tool("propose_service_sites", {"buildingPrefab": prefab, "near": near, "radius": radius,
@@ -219,6 +264,8 @@ def place_near(label: str, prefab: str, near: dict[str, float], polluting: bool 
             break
     passed = []
     for site in sites["sites"]:
+        if reaches is not None and not reaches(site):
+            continue
         placed = place_site(label, prefab, site)
         if placed.get("stage") == "unsafe":
             passed.append({"position": site["position"], "unsafe": placed["unsafe"]})
@@ -360,6 +407,11 @@ def streak(state: dict[str, Any], name: str) -> int:
 
 
 BURN_WAVE = 10  # burned ruins in one knot that call for another fire station there
+# a knot that burned this far by road from every station gets one, however few burned: engines
+# there arrive too late although stations stand close (live: fires 600m from a station whose engines
+# had to drive 4km round, the town grown out in districts the roads join only far apart)
+FIRE_ROUTE = 1500.0
+FIRE_STATIONS_TRIED = 3  # nearest stations whose road route is measured
 
 
 def with_ruins(problems: list[dict[str, Any]], ruined: dict[str, int] | None) -> list[dict[str, Any]]:
@@ -407,6 +459,23 @@ def solve(city: City, label: str, high_density: bool = False, offices: bool = Fa
                 family = entry["remedy"]["family"]
                 rebuilds[family] = [wake for wake in rebuilds.get(family, [])
                                     if state["wake"] - wake < FILLS_UP_WINDOW] + [state["wake"]]
+    route = road_router() if burned and burned["count"] < BURN_WAVE else None
+    far = fire_route(burned["center"], route) if route else None
+    if far is not None and far > FIRE_ROUTE and placements < MAX_PLACEMENTS and "fire" not in placed_families:
+        result = {"ok": False, "stage": "noOption"}
+        point = (burned["center"]["x"], burned["center"]["z"])
+        # the new station must itself be near by road (live: one placed 437m away drove 5km round)
+        reaches = lambda site: route((site["position"]["x"], site["position"]["z"]), point) <= FIRE_ROUTE  # noqa: E731
+        for option in [item for item in choose_prefabs("fire", "coverage", state, SPEND_SHARE)
+                       if item.get("affordable", True)][:3]:
+            result = place_near(f"fix-fire-far-{label}", option["name"], burned["center"], reaches=reaches)
+            if result.get("stage") not in ("noSite", "sitesTaken"):
+                break
+        actions.append({"problem": "FireFar", "cluster": burned["count"], "route": round(far), "need": "coverage",
+                        **result})
+        if result.get("ok"):
+            placements += 1
+            placed_families.add("fire")
     if burned and burned["count"] >= BURN_WAVE and placements < MAX_PLACEMENTS and "fire" not in placed_families:
         # a fire wave is out before the next wake reads it: the ruins cleared this wake are all that
         # shows it, so the stations there had too few engines, covered or not (live: 66 industrial
@@ -471,6 +540,11 @@ def solve(city: City, label: str, high_density: bool = False, offices: bool = Fa
                     continue  # persisting with no empty commercial land left: the planner hears when it rises
                 if remedy.get("lever") == "slowCommercial" and counts[-1] < SHOPS_SHARE * _shops():
                     continue  # the churn of a large city: the levers above go on working it
+                if remedy.get("lever") == "industrySupply" and counts[-1] < INDUSTRY_SHARE * _growing("Industrial"):
+                    continue
+                if remedy.get("lever") not in ("slowCommercial", "industrySupply") \
+                        and counts[-1] < ECONOMY_SHARE * _growing():
+                    continue
                 escalation = {"economyRising": name, "counts": counts, "lever": remedy.get("lever")}
                 if name == "Noise":  # the planner is told what makes the noise, not only that it rises
                     noise = mt.call_tool("diagnose_noise", {"limit": 8})

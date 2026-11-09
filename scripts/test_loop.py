@@ -9,7 +9,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from loop import city as city_module  # noqa: E402
-from loop import cycle, district, growth, industry, metro, play, protocol, ramps, roads, services, traffic, utilities, wake  # noqa: E402
+from loop import cargo, cycle, district, growth, industry, metro, play, protocol, ramps, roads, services, traffic, utilities, wake  # noqa: E402
 
 
 # no test reads the live game: the towns here have no industry and no homes unless a test says so
@@ -66,6 +66,24 @@ class GrowthTests(unittest.TestCase):
             results.append(allowance)
         self.assertEqual([None, None, 3], results)
 
+    def test_a_wait_counts_what_was_built_not_how_the_vacancy_moved(self):
+        record: dict = {}
+        results = []
+        # the vacancy rises and falls with rezoning, the homes do not grow: still a stale wait
+        for vacancy in (115, 148, 119):
+            category = {"demand": 63, "developableVacantCells": vacancy, "occupiedCells": 17060,
+                        "maximumAdditionalBlocksThisWake": 0}
+            allowance, record = growth.stale_allowance(category, record)
+            results.append(allowance)
+        self.assertEqual([None, None, 3], results)
+        record, results = {}, []
+        for occupied in (17060, 17100, 17150):  # homes being built: no stale wait
+            category = {"demand": 63, "developableVacantCells": 115, "occupiedCells": occupied,
+                        "maximumAdditionalBlocksThisWake": 0}
+            allowance, record = growth.stale_allowance(category, record)
+            results.append(allowance)
+        self.assertEqual([None, None, None], results)
+
     def test_allowance_is_the_largest_reason(self):
         state = {"absorption": {"workplace": {"vacancy": 30, "zonedBlocks": 6}}, "stale": {}}
         categories = {use: {"demand": 10, "developableVacantCells": 0, "maximumAdditionalBlocksThisWake": 1}
@@ -87,6 +105,48 @@ class GrowthTests(unittest.TestCase):
         self.assertEqual(0, growth.allowances(categories, {"absorption": {}, "stale": {}})["residential"])
         categories["workplace"]["demand"] = 10  # the jobs are not wanted: no hurry for workers
         self.assertEqual(0, growth.allowances(categories, {"absorption": {}, "stale": {}}, 2)["residential"])
+        # but none are zoned either while few are without work and homes are wanted
+        self.assertEqual(0, growth.allowances(categories, {"absorption": {}, "stale": {}}, 2)["workplace"])
+        self.assertEqual(3, growth.allowances(categories, {"absorption": {}, "stale": {}}, 7)["workplace"])
+
+
+class JobsShortTests(unittest.TestCase):
+    def test_workplace_blocks_are_zoned_while_many_are_without_work_and_jobs_are_wanted(self):
+        categories = {use: {"demand": 32, "developableVacantCells": 0, "maximumAdditionalBlocksThisWake": 0}
+                      for use in growth.USES}
+        categories["workplace"]["demand"] = 62
+        fresh = lambda: {"absorption": {}, "stale": {}}  # noqa: E731
+        self.assertEqual(growth.JOBS_BLOCKS, growth.allowances(categories, fresh(), 6)["workplace"])
+        self.assertEqual(2 * growth.JOBS_BLOCKS, growth.allowances(categories, fresh(), 7)["workplace"])
+        self.assertEqual(growth.JOBS_MAX, growth.allowances(categories, fresh(), 15)["workplace"])
+        self.assertEqual(0, growth.allowances(categories, fresh(), 4)["workplace"])
+        self.assertEqual(0, growth.allowances(categories, fresh())["workplace"])
+        # empty workplace land already zoned counts toward the blocks kept ready
+        categories["workplace"]["developableVacantCells"] = 2 * growth.CELLS_PER_BLOCK + 5
+        self.assertEqual(2 * growth.JOBS_BLOCKS - 2, growth.allowances(categories, fresh(), 7)["workplace"])
+        categories["workplace"]["developableVacantCells"] = 294  # live: enough stands empty
+        self.assertEqual(0, growth.allowances(categories, fresh(), 7)["workplace"])
+        self.assertEqual(growth.JOBS_MAX - 12, growth.allowances(categories, fresh(), 15)["workplace"])
+        categories["workplace"]["developableVacantCells"] = 0
+        categories["workplace"]["demand"] = 20  # the jobs are not wanted
+        self.assertEqual(0, growth.allowances(categories, fresh(), 7)["workplace"])
+
+    def test_offices_go_first_when_they_fill_faster(self):
+        def zones(office, industry):
+            return {"zones": {"capacityByZone": [
+                {"zone": "Office", "validUnsharedCells": 10000, "developableVacantCells": office},
+                {"zone": "Industrial", "validUnsharedCells": 6000, "developableVacantCells": industry}]}}
+        self.assertTrue(growth.office_fills_faster(zones(96, 128)))
+        self.assertFalse(growth.office_fills_faster(zones(500, 128)))
+        self.assertFalse(growth.office_fills_faster({}))
+        asked = []
+
+        def zone(city, use, allowance, *args):
+            asked.append((use, allowance))
+            return [{"ok": True}] * (2 if use == "office" else allowance)
+        with mock.patch.object(growth, "zone_blocks", side_effect=zone):
+            growth.zone_workplace(None, 6, "a", [], True, offices_first=True)
+        self.assertEqual([("office", 6), ("workplace", 4)], asked)
 
 
 class ClearBuildingsTests(unittest.TestCase):
@@ -707,6 +767,30 @@ class ShortfallTests(unittest.TestCase):
         self.assertEqual(1, len(report["steps"]))
         self.assertTrue(report["caughtUp"])
 
+    def test_buildings_read_dry_that_have_water_by_the_plan_lay_nothing(self):
+        served = [{"id": 9, "position": {"x": 0, "z": 0}}]
+        coverage = iter([{"summary": {"missingWater": 1, "missingSewage": 1}, "buildings": served}] +
+                        [{"summary": {}, "buildings": served}] * 3)
+
+        def tool(name, args):
+            if name == "diagnose_utility_shortfall":
+                return {"coveredButShort": [], "notCovered": [{"id": 1}], "verdict": ["notCovered"]}
+            if name == "propose_water_service_connection":
+                return {"ok": True, "safe": True, "actionRequired": False,
+                        "reason": "allTargetBuildingsAlreadyHaveWaterAndSewage", "targetBuildings": [{"id": 1}]}
+            return next(coverage)
+
+        with tempfile.TemporaryDirectory() as root:
+            city = city_module.City({"instanceId": "t"}, Path(root))
+            with mock.patch.object(utilities, "_water_facilities", return_value={}), \
+                    mock.patch.object(utilities, "water_pair", return_value=(1, 2)), \
+                    mock.patch.object(utilities.mt, "call_tool", side_effect=tool), \
+                    mock.patch.object(utilities.protocol, "run") as run:
+                report = utilities.repair_water("a", city)
+        run.assert_not_called()
+        self.assertEqual([{"step": 0, "alreadyServed": 1}], report["steps"])
+        self.assertTrue(report["caughtUp"])
+
     def test_a_short_water_supply_gets_its_trimmed_budget_back_before_any_pipe(self):
         summary = {"missingWater": 9, "missingSewage": 0}
         diagnosis = {"coveredButShort": [{"id": 1}, {"id": 2}], "notCovered": [], "verdict": ["supplyShort"]}
@@ -943,6 +1027,26 @@ class OpenDistrictTests(unittest.TestCase):
 
     def test_no_new_land_while_cash_is_short(self):
         self.assertFalse(self.grow(zoned_ok=False, hold_land="waitingForCash"))
+
+    def test_homes_open_new_land_below_the_expansion_demand_while_workers_are_short(self):
+        def grow(unemployment):
+            categories = {use: {"demand": 39, "developableVacantCells": 139} for use in growth.USES}
+            categories["workplace"]["demand"] = 52
+            with tempfile.TemporaryDirectory() as root:
+                city = city_module.City({"instanceId": "t"}, Path(root))
+                city.save_state("growth", {"absorption": {}, "stale": {}, "outside": {"complete": True}})
+                with mock.patch.object(growth.mt, "call_tool", return_value={"growthPacing": {"categories": categories}}), \
+                        mock.patch.object(growth.mt, "city_health",
+                                          return_value={"employment": {"unemployment": unemployment}}), \
+                        mock.patch.object(growth, "allowances",
+                                          return_value={"residential": 12, "commercial": 0, "workplace": 0}), \
+                        mock.patch.object(growth, "zone_blocks", return_value=[]), \
+                        mock.patch.object(growth, "rezone_surplus_commerce", return_value=None), \
+                        mock.patch.object(growth, "expand", return_value={"ok": True}) as expand:
+                    growth.grow(city, "a")
+            return [call[0][1] for call in expand.call_args_list]
+        self.assertEqual(["residential"], grow(3))
+        self.assertEqual([], grow(5))  # workers are not short: the demand must reach EXPAND_DEMAND
 
 
 class ContinuationTests(unittest.TestCase):
@@ -1273,6 +1377,7 @@ class RidershipTests(unittest.TestCase):
         self.assertFalse(traffic.relief_underused([self.line(1, 0, 20, name="Downtown")]))
         self.assertFalse(traffic.relief_underused([]))
         with mock.patch.object(traffic, "relief_underused", return_value=True), \
+                mock.patch.object(traffic, "_bus_lines", return_value=[]), \
                 mock.patch.object(traffic.mt, "call_tool", side_effect=AssertionError("no proposal")):
             self.assertIsNone(traffic.transit("t", {"center": {"x": 0, "z": 0}}))
 
@@ -1435,6 +1540,30 @@ class TrafficTests(unittest.TestCase):
         stats = {"junctionControl": {"worked": 0, "failed": 4}, "widen": {"worked": 1, "failed": 1}}
         self.assertEqual(["widen", "bypass", "junctionControl"],
                          traffic.order(["junctionControl", "widen", "bypass"], stats))
+
+    def test_the_kind_that_worked_most_often_goes_first(self):
+        stats = {"transit": {"worked": 18, "failed": 36}, "widen": {"worked": 15, "failed": 5},
+                 "bypass": {"worked": 1, "failed": 31}}
+        self.assertEqual(["widen", "transit", "bypass"], traffic.order(["transit", "bypass", "widen"], stats))
+
+    def test_a_kind_that_failed_twice_at_a_hotspot_is_not_tried_there_again(self):
+        hotspot = {"segmentIds": [1, 2], "meanDensity": 99.0, "segmentCount": 2, "center": {"x": 0, "z": 0},
+                   "diagnosis": {}, "remedies": [{"kind": "transit", "reason": "cars"}]}
+        failed = [{"key": "hotspot-1", "kind": "transit", "wake": wake, "meanDensity": 99, "segments": 2,
+                   "detail": {"target": "line"}, "verdict": "failed"} for wake in (1, 11)]
+        city = mock.Mock()
+        city.load_state.return_value = {"wake": 30, "hotspots": [{"segmentIds": [1, 2], "seen": 3, "key": "hotspot-1"}],
+                                        "actions": failed, "tried": {}, "kindStats": {}, "spent": {},
+                                        "escalatedAt": {}, "widened": {}}
+        tried = []
+        with mock.patch.object(traffic.mt, "call_tool", return_value={"status": "congested", "flowRatio": 0.7,
+                                                                      "hotspots": [hotspot]}), \
+                mock.patch.object(traffic.metro, "available", return_value=False), \
+                mock.patch.object(traffic, "review_lines", return_value=None), \
+                mock.patch.object(traffic, "act", side_effect=lambda *args: tried.append(args[5]["kind"])):
+            traffic.watch(city, "t")
+        self.assertNotIn("transit", tried)
+        self.assertIn("bypass", tried)
 
     def test_judge_by_density_or_disappearance(self):
         state = {"wake": 5, "kindStats": {}, "actions": [
@@ -1599,6 +1728,7 @@ class OutsideLinkTests(unittest.TestCase):
         city.save_state.side_effect = lambda name, value: saved.update({name: value})
         proposal = {"status": "congested", "flowRatio": 0.7, "hotspots": [hotspot]}
         with mock.patch.object(traffic.mt, "call_tool", return_value=proposal), \
+                mock.patch.object(traffic.ramps, "build_exit", return_value=None), \
                 mock.patch.object(traffic, "outside_link", return_value=link) as call:
             summary = traffic.watch(city, "t")
         return summary, saved["traffic"], call
@@ -1625,11 +1755,157 @@ class OutsideLinkTests(unittest.TestCase):
         self.assertNotIn("hotspot-1", state.get("outsideLinked", {}))
 
 
-    def test_a_hotspot_waits_for_the_verdict_on_its_last_remedy_before_the_planner(self):
-        summary, state, _ = self.watch({"ok": None, "reason": "nothingSelectable", "prefab": "Large Road"},
-                                       pending=True)
+    def test_a_hotspot_waits_for_the_verdict_on_its_last_remedy_before_another_or_the_planner(self):
+        summary, state, call = self.watch({"ok": True, "prefab": "Large Road", "upgraded": [7], "segments": [1]},
+                                          pending=True)
+        self.assertFalse(call.called)  # nothing built on top of the remedy still to be judged
+        self.assertNotIn("action", summary)
         self.assertNotIn("escalation", summary)
-        self.assertEqual(11, state["spent"]["hotspot-1"])
+        self.assertNotIn("hotspot-1", state["spent"])
+
+
+class FireRouteTests(unittest.TestCase):
+    @staticmethod
+    def road(i, a, b):
+        return {"id": i, "startNodeId": a[0], "endNodeId": b[0], "start": {"x": a[1], "z": a[2]},
+                "end": {"x": b[1], "z": b[2]}}
+
+    def reads(self, segments):
+        def request(method, path, query=None, body=None):
+            if path == "/state/facilities":
+                return {"facilities": [{"position": {"x": 0.0, "z": 0.0}}]}
+            return {"segments": segments}
+        return request
+
+    def test_a_fire_close_in_a_line_but_far_by_road_is_measured_by_road(self):
+        # station at (0,0), the fire at (0,600): the only road runs out 2km east and back
+        a, b, c, d = (1, 0.0, 0.0), (2, 2000.0, 0.0), (3, 2000.0, 600.0), (4, 0.0, 600.0)
+        segments = [self.road(1, a, b), self.road(2, b, c), self.road(3, c, d)]
+        with mock.patch.object(services.mt, "_request", side_effect=self.reads(segments)):
+            self.assertAlmostEqual(4600.0, services.fire_route({"x": 0.0, "z": 600.0}))
+        with mock.patch.object(services.mt, "_request", side_effect=self.reads(segments + [self.road(4, a, d)])):
+            self.assertAlmostEqual(600.0, services.fire_route({"x": 0.0, "z": 600.0}))
+
+
+class ParallelReliefTests(unittest.TestCase):
+    @staticmethod
+    def road(i, a, b, prefab="Basic Road", nodes=None):
+        nodes = nodes or (i * 10, i * 10 + 1)
+        return {"id": i, "prefab": prefab, "startNodeId": nodes[0], "endNodeId": nodes[1],
+                "start": {"x": a[0], "z": a[1]}, "end": {"x": b[0], "z": b[1]}}
+
+    def test_a_quiet_chain_running_beside_the_jammed_arterial_is_found(self):
+        arterial = [self.road(1, (0, 0), (200, 0), "Small 4 Lane Road", (1, 2)),
+                    self.road(2, (200, 0), (400, 0), "Small 4 Lane Road", (2, 3))]
+        beside = [self.road(10, (0, 120), (200, 125), nodes=(10, 11)), self.road(11, (200, 125), (400, 120), nodes=(11, 12))]
+        across = [self.road(20, (100, 0), (100, 120), nodes=(20, 21))]  # a side street, not parallel
+        busy = [self.road(30, (0, -120), (400, -120), nodes=(30, 31))]  # parallel but full
+        density = {1: 100, 2: 100, 10: 5, 11: 10, 20: 0, 30: 95}
+        chain = traffic.parallel_chain(arterial + beside + across + busy, density, arterial[0], [1, 2])
+        self.assertEqual([10, 11], sorted(int(s["id"]) for s in chain))
+
+    def test_the_axis_follows_the_arterial_not_its_short_exit(self):
+        # a 40m exit turned 60 degrees; the arterial runs along x
+        arterial = [self.road(1, (0, 0), (300, 0), "Small 4 Lane Road", (1, 2)),
+                    self.road(2, (300, 0), (320, 35), "Small 4 Lane Road", (2, 3))]
+        a, b = traffic.arterial_axis(arterial, arterial[1], [1, 2])
+        heading = math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])) % 180
+        self.assertLess(min(heading, 180 - heading), 15)  # along x, through the exit
+        self.assertAlmostEqual(17.5, (a[1] + b[1]) / 2, places=3)
+        ring = [self.road(i, p, q, "Small 4 Lane Road", (i, i + 1)) for i, (p, q) in
+                enumerate((((0, 0), (100, 0)), ((100, 0), (100, 100)), ((100, 100), (0, 100)), ((0, 100), (0, 0))), 1)]
+        self.assertEqual(((0, 100), (0, 0)), traffic.arterial_axis(ring, ring[3], [1, 2, 3, 4]))  # no agreement
+
+    LANES = {"Basic Road": 2, "Small 4 Lane Road": 4}
+
+    def test_a_narrower_road_between_wider_ones_on_the_jammed_run_is_a_neck(self):
+        four = "Small 4 Lane Road"
+        run = [self.road(1, (0, 0), (100, 0), four, (1, 2)),  # the hotspot
+               self.road(2, (100, 0), (200, 0), four, (2, 3)),  # eases a little
+               self.road(3, (200, 0), (260, 0), "Basic Road", (3, 4)),  # the lane drop
+               self.road(4, (260, 0), (400, 0), four, (4, 5)),
+               self.road(5, (260, 0), (260, 100), "Basic Road", (4, 6))]  # a quiet side street
+        density = {1: 100, 2: 43, 3: 100, 4: 83, 5: 0}
+        lanes = lambda segment: self.LANES[segment["prefab"]]
+        found = traffic.necks(run, density, [1], lanes)
+        self.assertEqual([([3], four)], [([int(s["id"]) for s in chain], prefab) for chain, prefab in found])
+        far = [self.road(6, (400, 0), (1300, 0), four, (5, 7)), self.road(7, (1300, 0), (1360, 0), "Basic Road", (7, 8)),
+               self.road(8, (1360, 0), (1500, 0), four, (8, 9))]  # a lane drop out of range
+        self.assertEqual([[3]], [[int(s["id"]) for s in chain] for chain, _ in
+                                 traffic.necks(run + far, {**density, 7: 100}, [1], lanes)])
+        run[3] = self.road(4, (260, 0), (400, 0), "Basic Road", (4, 5))  # the arterial ends here for good
+        self.assertEqual([], traffic.necks(run, density, [1], lanes))
+
+    def test_a_one_lane_ramp_between_highways_is_widened_whole_as_a_one_way_road(self):
+        def way(i, a, b, prefab):
+            return {**self.road(i, (a * 100.0, 0.0), (b * 100.0, 0.0), prefab, (a, b)), "isOneWay": True}
+        lanes = {"Highway": 3, "HighwayRamp": 1, "Small 4 Lane Road": 4}
+        network = [way(1, 1, 2, "Highway"), way(2, 2, 3, "HighwayRamp"), way(3, 3, 4, "HighwayRamp"),
+                   way(4, 4, 5, "HighwayRamp"), way(5, 5, 6, "Highway"),
+                   self.road(6, (200.0, 0.0), (200.0, 100.0), "Small 4 Lane Road", (2, 7))]  # a town road at the split
+        found = traffic.necks(network, {1: 100, 2: 100, 3: 100, 4: 95, 5: 49}, [1], lambda s: lanes[s["prefab"]])
+        self.assertEqual([([2, 3, 4], "Highway")], [(sorted(int(s["id"]) for s in chain), prefab) for chain, prefab in found])
+        exit_ramp = network[:4] + [self.road(5, (500.0, 0.0), (600.0, 0.0), "Small 4 Lane Road", (5, 6))]
+        self.assertEqual([], traffic.necks(exit_ramp, {1: 100, 2: 100, 3: 100, 4: 95}, [1],
+                                           lambda s: lanes[s["prefab"]]))  # a ramp into town stays a ramp
+
+    def test_an_elevated_road_is_judged_by_the_native_upgrade_alone(self):
+        segment = {"id": 4, "prefab": "HighwayRampElevated", "start": {"x": 0, "z": 0}, "end": {"x": 50, "z": 0}}
+        with mock.patch.object(traffic, "_upgrade_preview", return_value={"valid": True, "cost": 1}), \
+                mock.patch.object(traffic.mt, "call_tool", side_effect=AssertionError("no ground chords")):
+            self.assertEqual([], traffic._link_preview(segment, "Highway")["under"])
+
+    def test_a_queue_backing_up_tries_the_neck_first(self):
+        hotspot = {"diagnosis": {"dominantExit": {"segmentId": 7, "density": 100}}}
+        self.assertEqual("neck", traffic.kinds_for(hotspot, {"transit": {}}, {})[0])
+        self.assertNotIn("neck", traffic.kinds_for({"diagnosis": {"dominantExit": {"density": 50}}}, {"transit": {}}, {}))
+
+    def test_a_jammed_exit_offers_parallel_relief(self):
+        hotspot = {"diagnosis": {"dominantExit": {"segmentId": 7, "density": 100}}}
+        self.assertIn("parallel", traffic.kinds_for(hotspot, {"transit": {}}, {}))
+        hotspot["diagnosis"]["dominantExit"]["density"] = 60
+        self.assertNotIn("parallel", traffic.kinds_for(hotspot, {"transit": {}}, {}))
+
+
+class PlaceNearReachTests(unittest.TestCase):
+    def test_a_site_the_check_rejects_is_left_out(self):
+        sites = {"sites": [{"position": {"x": 1.0, "z": 0.0}}, {"position": {"x": 2.0, "z": 0.0}}]}
+        with mock.patch.object(services.mt, "call_tool", return_value=sites), \
+                mock.patch.object(services, "place_site", return_value={"ok": True}) as place:
+            services.place_near("a", "Fire", {"x": 0.0, "z": 0.0}, reaches=lambda site: site["position"]["x"] > 1.5)
+            self.assertEqual(2.0, place.call_args.args[2]["position"]["x"])
+            self.assertEqual("noSite", services.place_near("a", "Fire", {"x": 0.0, "z": 0.0},
+                                                           reaches=lambda site: False)["stage"])
+
+
+class CargoGoneTests(unittest.TestCase):
+    def test_a_terminal_that_no_longer_stands_is_let_go(self):
+        with tempfile.TemporaryDirectory() as folder:
+            city = city_module.City({"instanceId": "test"}, Path(folder))
+            city.save_state("cargo-rail", {**cargo.DEFAULT_STATE, "wake": 5,
+                                           "built": {"wake": 1, "buildingId": 917, "verdict": "failed"}})
+            with mock.patch.object(cargo, "evidence", return_value={"noResources": 0, "persisting": False,
+                                                                     "cargoHotspots": []}), \
+                    mock.patch.object(cargo.mt, "call_tool",
+                                      side_effect=cargo.mt.BridgeRequestError('{"error": "Building was not found"}')):
+                report = cargo.step(city, "t", {"unlocked": ["train"]}, {})
+            state = city.load_state("cargo-rail", {})
+            self.assertEqual(917, report["gone"])
+            self.assertIsNone(state["built"])
+            self.assertEqual([917], [item["buildingId"] for item in state["gone"]])
+            self.assertEqual("noEvidence", report["reason"])
+
+    def test_a_terminal_still_standing_or_unread_is_kept(self):
+        for effect in ({"ok": True}, RuntimeError("busy")):
+            with tempfile.TemporaryDirectory() as folder:
+                city = city_module.City({"instanceId": "test"}, Path(folder))
+                city.save_state("cargo-rail", {**cargo.DEFAULT_STATE, "wake": 5,
+                                               "built": {"wake": 1, "buildingId": 917, "verdict": "failed"}})
+                kwargs = {"side_effect": effect} if isinstance(effect, Exception) else {"return_value": effect}
+                with mock.patch.object(cargo, "evidence", return_value={"noResources": 0}), \
+                        mock.patch.object(cargo.mt, "call_tool", **kwargs):
+                    cargo.step(city, "t", {}, {})
+                self.assertEqual(917, city.load_state("cargo-rail", {})["built"]["buildingId"])
 
 
 class ServiceTests(unittest.TestCase):
@@ -1689,6 +1965,38 @@ class ServiceTests(unittest.TestCase):
                 return reports[-1]["escalations"]
         self.assertEqual([], run(806))  # 23 of 806: churn
         self.assertEqual("NoCustomers", run(300)[0]["economyRising"])
+
+    def test_rising_industry_short_of_goods_goes_to_the_planner_only_past_a_share_of_the_industry(self):
+        def run(industry):
+            with tempfile.TemporaryDirectory() as folder:
+                city = city_module.City({"instanceId": "test"}, Path(folder))
+                reports = []
+                for count in (11, 18, 19, 21):
+                    assessment = {"problems": [{"problem": "NoResources", "count": count, "buildingIds": [5],
+                                                "remedy": {"kind": "economy", "lever": "industrySupply"}}]}
+                    with mock.patch.object(services.mt, "call_tool", return_value=assessment), \
+                            mock.patch.object(services, "_growing", return_value=industry), \
+                            mock.patch.object(services.industry, "supply", return_value=None):
+                        reports.append(services.solve(city, "t"))
+                return reports[-1]["escalations"]
+        self.assertEqual([], run(815))  # 21 of 815: churn
+        self.assertEqual("NoResources", run(300)[0]["economyRising"])
+
+    def test_another_rising_economy_problem_goes_to_the_planner_only_past_a_share_of_the_city(self):
+        def run(growables):
+            with tempfile.TemporaryDirectory() as folder:
+                city = city_module.City({"instanceId": "test"}, Path(folder))
+                reports = []
+                for count in (6, 7, 8, 9):
+                    assessment = {"problems": [{"problem": "Pollution", "count": count, "buildingIds": [5],
+                                                "remedy": {"kind": "economy", "lever": "separatePollution"}}]}
+                    with mock.patch.object(services.mt, "call_tool", return_value=assessment), \
+                            mock.patch.object(services, "_growing", return_value=growables):
+                        reports.append(services.solve(city, "t"))
+                return reports[-1]["escalations"]
+        with mock.patch.object(services, "ECONOMY_MIN", 5):
+            self.assertEqual([], run(6400))  # 9 of 6,400: churn
+            self.assertEqual("Pollution", run(400)[0]["economyRising"])
 
     def test_streak_counts_consecutive_wakes_only(self):
         state = {"wake": 1}
@@ -2387,10 +2695,13 @@ class BurnWaveTests(unittest.TestCase):
     def test_a_burn_wave_places_fire_capacity_at_its_ruins_and_a_small_fire_does_not(self):
         assessment = {"problems": []}
         option = {"name": "Fire Station", "affordable": True}
-        for count, placed in ((12, True), (4, False)):
+        for count, route, placed, label in ((12, 600.0, True, "fix-fire-wave-a"), (4, 600.0, False, None),
+                                            (2, 2100.0, True, "fix-fire-far-a")):
             city = mock.Mock()
             city.load_state.return_value = {"clusters": {}, "counts": {}, "noSite": {}, "wake": 0}
             with mock.patch.object(services.mt, "call_tool", return_value=assessment), \
+                    mock.patch.object(services, "fire_route", return_value=route), \
+                    mock.patch.object(services, "road_router", return_value=lambda a, b: 100.0), \
                     mock.patch.object(services, "judge_placements", return_value=[]), \
                     mock.patch.object(services, "choose_prefabs", return_value=[option]), \
                     mock.patch.object(services, "best_park", return_value=None), \
@@ -2398,9 +2709,9 @@ class BurnWaveTests(unittest.TestCase):
                 solved = services.solve(city, "a", burned={"count": count, "center": {"x": 5.0, "z": 6.0}})
             self.assertEqual(placed, near.called)
             if placed:
-                self.assertEqual("fix-fire-wave-a", near.call_args_list[0].args[0])  # before any other need
+                self.assertEqual(label, near.call_args_list[0].args[0])  # before any other need
                 self.assertEqual({"x": 5.0, "z": 6.0}, near.call_args.args[2])
-                self.assertIn("BurnWave", [action.get("problem") for action in solved["actions"]])
+                self.assertIn("BurnWave" if count >= 10 else "FireFar", [action.get("problem") for action in solved["actions"]])
 
 
 class IndustryDistrictTests(unittest.TestCase):

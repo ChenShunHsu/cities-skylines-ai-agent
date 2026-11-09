@@ -80,6 +80,7 @@ MAX_RAIL_PREVIEWS = 120  # rail piece previews a plan may ask for
 MAX_CLEARED = 8
 MAX_HOMES = 2
 MAX_ATTEMPTS = 3
+GONE = "Building was not found"
 RETRY_AFTER = 10
 JUDGE_AFTER = 8
 COST = 60000.0  # display cash (live preview: constructionCost 6,000,000 in cents)
@@ -835,12 +836,30 @@ def judge(state: dict[str, Any], seen: dict[str, Any]) -> dict[str, Any] | None:
     return {"verdict": built["verdict"], **built["judged"]}
 
 
+def standing(building_id: int) -> bool | None:
+    """Whether the building still stands (the bulldoze preview finds it); None when it cannot be read."""
+    try:
+        mt.call_tool("preview_bulldoze_impact", {"entityType": "building", "id": building_id})
+    except mt.BridgeRequestError as error:
+        return False if GONE in str(error) else None
+    except RuntimeError:
+        return None
+    return True
+
+
 def step(city: City, label: str, wake: dict[str, Any], traffic: dict[str, Any]) -> dict[str, Any]:
     state = {**json.loads(json.dumps(DEFAULT_STATE)), **city.load_state("cargo-rail", {})}  # fresh lists
     state["wake"] += 1
     seen = evidence(state, wake, traffic)
     report: dict[str, Any] = {"noResources": seen["noResources"]}
     try:
+        if state["built"] and standing(int(state["built"]["buildingId"])) is False:
+            # a terminal that no longer stands is let go and the industry may have one elsewhere
+            # (live: one by the forestry was removed, its imports trucked 3km across town to the
+            # densest industry, which then lay far from any terminal)
+            state.setdefault("gone", []).append({**state["built"], "goneAt": state["wake"]})
+            state["built"] = None
+            report["gone"] = state["gone"][-1]["buildingId"]
         if state["built"]:
             verdict = judge(state, seen)
             report.update({"built": state["built"]["buildingId"], **({"judged": verdict} if verdict else {})})

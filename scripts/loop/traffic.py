@@ -21,6 +21,7 @@ from __future__ import annotations
 import heapq
 import json
 import math
+from collections import Counter
 from typing import Any, Callable
 
 from loop import metro, protocol, ramps, roads, services
@@ -30,6 +31,9 @@ from mayor import network
 PERSIST = 3
 JUDGE_AFTER = 2
 RETRY_AFTER = 8
+# a kind that failed this often at one hotspot is not tried there again: it goes on to the next
+# kind and the planner (live: a transit line added to one hotspot four times, failing each time)
+FAILS_HERE = 2
 ESCALATE_EVERY = 80
 MAX_JUNCTION_TRIALS = 3
 DEPOT_PREFAB = "Bus Depot"
@@ -57,7 +61,7 @@ MAX_LINE_CHANGES = 3  # line changes a wake
 # spends its riders' time on detours (live: lines at 2.4 and 3.0 carried 10 or 11 riders a week,
 # those at 1.9 or less 12 to 81)
 DETOUR_MAX = 2.2
-EXECUTABLE = ("relieveDownstream", "transit", "junctionControl", "widen", "bypass", "outsideLink")
+EXECUTABLE = ("relieveDownstream", "transit", "junctionControl", "widen", "bypass", "outsideLink", "parallel", "neck")
 HIGHWAY_FED = 0.5  # share of a hotspot's vehicles on the highway past which it gets an exit ramp
 # outsideLink: live (2052, 27,000 people, one highway link): hotspot-559, 600m east of the link
 # junction, had half its paired trips (externalShare 0.505) going to or from outside after transit,
@@ -67,6 +71,32 @@ OUTSIDE_SHARE = 0.4
 # three lanes each way match the three-lane highway ramps; Medium Road when Large is locked
 OUTSIDE_LINK_PREFABS = ("Large Road", "Medium Road")
 WIDE_PREFIXES = ("Large Road", "Medium Road")  # already as wide as the link gets: left as they are
+# a jammed arterial with quiet roads beside it: vehicles take the fastest way, so they crowd the
+# arterial while the narrower roads parallel to it stand empty (live: 4-lane roads at a mean density
+# of 78-96 beside 2-lane roads at 11-22). A parallel chain upgraded to the arterial's own prefab, as
+# fast, takes a share; it is laid where the upgrade clears nothing.
+PARALLEL_JAMMED = 90  # density of the dominant exit that calls for relief beside it
+PARALLEL_QUIET = 40  # density under which a road beside it has room
+PARALLEL_GAP = (40.0, 300.0)  # distance from the arterial's line, metres
+PARALLEL_SPAN = 600.0  # along the arterial either way from its middle
+PARALLEL_ANGLE = 25.0  # most a parallel road may turn off the arterial, degrees
+PARALLEL_MIN = 150.0  # least length of the chain upgraded
+PARALLEL_MAX = 24  # segments upgraded at most
+AXIS_AGREEMENT = 0.5  # how far the arterial's segment headings must agree to give its way
+# a lane drop: a narrower road between wider ones on the busy run out of a hotspot, the queue backing
+# up from it through the hotspot (live: one 56m 2-lane segment in a 4-lane arterial jammed eight
+# segments back, while a parallel road and same-width upgrades at the hotspot did nothing). It is
+# upgraded to the wider roads' prefab where that clears nothing, before anything else is tried.
+NECK_JAMMED = 90  # density of the narrower segment itself
+OFF_GROUND = ("Elevated", "Bridge", "Tunnel")  # prefab words of a road that is not on the ground
+# how far by road from the hotspot a lane drop is sought: by distance, not by the density between,
+# since a run eases here and there (live: a 43-67 connector between the hotspot and its lane drop)
+NECK_RANGE = 800.0
+NECK_MAX = 3  # lane drops widened at most at once
+# a lane drop runs on through segments as narrow as it, at plain bends, as one chain widened whole
+# (live: a 3-lane highway ended in a one-lane ramp of five segments into another 3-lane highway, the
+# ramp jammed its length); half of it widened would leave a lane drop still
+NECK_CHAIN = 8
 OUTSIDE_LINK_REACH = 1000.0  # metres from the highway along the route
 OUTSIDE_LINK_MAX_SEGMENTS = 12
 # a wider road runs over the lots that fronted the narrow one (live: the first trunk segment past the
@@ -84,12 +114,14 @@ def same(a: list[int], b: list[int]) -> bool:
 
 
 def order(kinds: list[str], stats: dict[str, dict[str, int]]) -> list[str]:
-    """Evidence order, but a kind that failed most of at least three tries here goes last."""
-    def failing(kind: str) -> bool:
+    """The kinds that have worked most often in this city first: each one's share of tries that
+    worked, counted from one worked and one failed so an untried kind stands at a half and a few
+    tries move it only so far; ties keep the evidence order (live: transit, failing 67% of 54 tries,
+    came before widening, which worked 15 of 20, since only kinds failing over 70% went last)."""
+    def rate(kind: str) -> float:
         record = stats.get(kind, {})
-        tries = record.get("worked", 0) + record.get("failed", 0)
-        return tries >= 3 and record.get("failed", 0) / tries > 0.7
-    return sorted(kinds, key=failing)
+        return (record.get("worked", 0) + 1) / (record.get("worked", 0) + record.get("failed", 0) + 2)
+    return sorted(kinds, key=lambda kind: -rate(kind))
 
 
 def kinds_for(hotspot: dict[str, Any], remedies: dict[str, dict[str, Any]],
@@ -99,7 +131,16 @@ def kinds_for(hotspot: dict[str, Any], remedies: dict[str, dict[str, Any]],
     even after a kind that keeps failing: it rebuilds roads and clears lots, so it waits until the
     cheaper local kinds are spent, and it comes before the planner. A hotspot of local cars that
     transit fits gets a metro line (loop.metro) once metro is unlocked, after the cheaper kinds."""
-    kinds = order([kind for kind in remedies if kind in EXECUTABLE and kind not in ("outsideLink", "metro")], stats)
+    kinds = order([kind for kind in remedies if kind in EXECUTABLE and kind not in ("outsideLink", "metro", "parallel")], stats)
+    exit_info = (hotspot.get("diagnosis") or {}).get("dominantExit") or {}
+    if (exit_info.get("density") or 0) >= NECK_JAMMED or (hotspot.get("diagnosis") or {}).get("downstreamSaturated"):
+        remedies["neck"] = {"kind": "neck", "candidates": None,
+                            "reason": "the queue backs up through it: a narrower road on its run is widened"}
+        kinds.insert(0, "neck")
+    if (exit_info.get("density") or 0) >= PARALLEL_JAMMED and exit_info.get("segmentId"):
+        remedies["parallel"] = {"kind": "parallel", "candidates": None,
+                                "reason": f"its exit (segment {exit_info['segmentId']}) is jammed: a quiet road beside it takes a share"}
+        kinds.append("parallel")
     if metro_ready and "transit" in remedies:
         remedies["metro"] = {"kind": "metro", "candidates": None,
                              "reason": "local car trips a bus in the same traffic does not take"}
@@ -414,6 +455,203 @@ def bypass(city: City, label: str, hotspot: dict[str, Any]) -> dict[str, Any] | 
             "detour": candidate["detour"], "servesVehicles": candidate["servesVehicles"]}
 
 
+def arterial_axis(segments: list[dict[str, Any]], arterial: dict[str, Any],
+                  hotspot_ids: list[int]) -> tuple[tuple[float, float], tuple[float, float]]:
+    """A line through the exit's middle along the way the arterial runs: the length-weighted mean
+    heading of the hotspot's segments of the exit's prefab, headings taken modulo 180 degrees (one
+    short segment of a curving arterial points anywhere: live, a 43m exit turned 30-60 degrees off
+    the roads that ran with it). Segments too scattered to agree (a ring) leave the exit's own way."""
+    ids = set(int(i) for i in hotspot_ids) | {int(arterial["id"])}
+    cos2 = sin2 = weight = 0.0
+    for segment in segments:
+        if int(segment["id"]) not in ids or segment.get("prefab") != arterial.get("prefab"):
+            continue
+        p, q = _point(segment, "start"), _point(segment, "end")
+        span = math.dist(p, q)
+        angle = math.atan2(q[1] - p[1], q[0] - p[0])
+        cos2, sin2, weight = cos2 + span * math.cos(2 * angle), sin2 + span * math.sin(2 * angle), weight + span
+    a, b = _point(arterial, "start"), _point(arterial, "end")
+    middle = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    if weight and math.hypot(cos2, sin2) / weight >= AXIS_AGREEMENT:
+        angle = math.atan2(sin2, cos2) / 2
+        way = (math.cos(angle) * 50.0, math.sin(angle) * 50.0)
+        return (middle[0] - way[0], middle[1] - way[1]), (middle[0] + way[0], middle[1] + way[1])
+    return a, b
+
+
+def parallel_chain(segments: list[dict[str, Any]], density: dict[int, float],
+                   arterial: dict[str, Any], hotspot_ids: list[int] = ()) -> list[dict[str, Any]]:
+    """The longest chain of quiet, narrower two-way roads beside the arterial and running with it
+    (PARALLEL_GAP off its line, within PARALLEL_SPAN along it, turned at most PARALLEL_ANGLE), or []."""
+    a, b = arterial_axis(segments, arterial, list(hotspot_ids))
+    length = math.dist(a, b) or 1.0
+    way = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
+    middle = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    turn = math.cos(math.radians(PARALLEL_ANGLE))
+    prefab = str(arterial.get("prefab"))
+    picked = {}
+    for segment in segments:
+        if int(segment["id"]) == int(arterial["id"]) or int(segment["id"]) in set(map(int, hotspot_ids)) \
+                or segment.get("isOneWay") \
+                or str(segment.get("prefab")) in (prefab,) or str(segment.get("prefab")).startswith(WIDE_PREFIXES) \
+                or "Highway" in str(segment.get("prefab")) or density.get(int(segment["id"]), 0) >= PARALLEL_QUIET:
+            continue
+        p, q = _point(segment, "start"), _point(segment, "end")
+        span = math.dist(p, q)
+        if not span:
+            continue
+        if abs(((q[0] - p[0]) * way[0] + (q[1] - p[1]) * way[1]) / span) < turn:
+            continue
+        centre = ((p[0] + q[0]) / 2 - middle[0], (p[1] + q[1]) / 2 - middle[1])
+        along = centre[0] * way[0] + centre[1] * way[1]
+        aside = abs(centre[0] * way[1] - centre[1] * way[0])
+        if abs(along) <= PARALLEL_SPAN and PARALLEL_GAP[0] <= aside <= PARALLEL_GAP[1]:
+            picked[int(segment["id"])] = segment
+    nodes: dict[int, list[int]] = {}
+    for sid, segment in picked.items():
+        for node in (int(segment["startNodeId"]), int(segment["endNodeId"])):
+            nodes.setdefault(node, []).append(sid)
+    best: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for sid in picked:
+        if sid in seen:
+            continue
+        chain, stack = [], [sid]
+        while stack:
+            here = stack.pop()
+            if here in seen:
+                continue
+            seen.add(here)
+            chain.append(picked[here])
+            for node in (int(picked[here]["startNodeId"]), int(picked[here]["endNodeId"])):
+                stack += [other for other in nodes[node] if other not in seen]
+        if sum(math.dist(_point(s, "start"), _point(s, "end")) for s in chain) > \
+                sum(math.dist(_point(s, "start"), _point(s, "end")) for s in best):
+            best = chain
+    total = sum(math.dist(_point(s, "start"), _point(s, "end")) for s in best)
+    return best[:PARALLEL_MAX] if total >= PARALLEL_MIN else []
+
+
+def necks(segments: list[dict[str, Any]], density: dict[int, float], hotspot_ids: list[int],
+          lanes: Callable[[dict[str, Any]], int]) -> list[tuple[list[dict[str, Any]], str]]:
+    """The lane drops within NECK_RANGE by road of the hotspot: a jammed segment, with the segments
+    as narrow running on from it at plain bends (NECK_CHAIN at most), that has a road with more car
+    lanes a way at each end of the chain, one-way when the chain is and two-way when it is not (a ramp
+    between highways, not one from a highway into town). Each comes with the prefab to widen it to:
+    the narrowest of those wider roads."""
+    by = {int(segment["id"]): segment for segment in segments}
+    at: dict[int, list[dict[str, Any]]] = {}
+    for segment in segments:
+        for node in (int(segment["startNodeId"]), int(segment["endNodeId"])):
+            at.setdefault(node, []).append(segment)
+
+    def width(segment: dict[str, Any]) -> float:
+        """Car lanes a way."""
+        return lanes(segment) if segment.get("isOneWay") else lanes(segment) / 2
+
+    reached: dict[int, float] = {}
+    queue = [(0.0, int(i)) for i in hotspot_ids if int(i) in by]
+    while queue:
+        distance, here = heapq.heappop(queue)
+        if here in reached:
+            continue
+        reached[here] = distance
+        length = math.dist(_point(by[here], "start"), _point(by[here], "end"))
+        for node in (int(by[here]["startNodeId"]), int(by[here]["endNodeId"])):
+            for other in at[node]:
+                if int(other["id"]) not in reached and distance + length <= NECK_RANGE:
+                    heapq.heappush(queue, (distance + length, int(other["id"])))
+    found: list[tuple[list[dict[str, Any]], str]] = []
+    taken: set[int] = set()
+    for sid in sorted(reached, key=reached.get):
+        segment = by[sid]
+        own = width(segment) if density.get(sid, 0) >= NECK_JAMMED and sid not in taken else 0
+        if not own:
+            continue
+        one_way = bool(segment.get("isOneWay"))
+        chain, sides = [segment], []
+        for node in (int(segment["startNodeId"]), int(segment["endNodeId"])):
+            here, came = node, segment
+            while True:
+                others = [other for other in at[here] if other is not came]
+                if len(others) == 1 and width(others[0]) == own and bool(others[0].get("isOneWay")) == one_way \
+                        and others[0] not in chain and len(chain) < NECK_CHAIN:
+                    came = others[0]
+                    chain.append(came)
+                    here = int(came["endNodeId"]) if int(came["startNodeId"]) == here else int(came["startNodeId"])
+                    continue
+                sides.append([other for other in others if width(other) > own])
+                break
+        sides = [[other for other in side if bool(other.get("isOneWay")) == one_way] for side in sides]
+        alike = [other for side in sides for other in side]
+        if all(sides):
+            found.append((chain, str(min(alike, key=width)["prefab"])))
+            taken |= {int(item["id"]) for item in chain}
+    return found[:NECK_MAX]
+
+
+def neck_relief(label: str, hotspot: dict[str, Any]) -> dict[str, Any] | None:
+    """Widen the lane drops on the hotspot's busy run (necks) to the roads either side of them, where
+    the upgrade previews clear of buildings and power lines; None when there is none."""
+    segments = mt._request("GET", "/state/networks", query={"limit": 50000, "service": "Road"}).get("segments", [])
+    rows = mt._request("GET", "/state/traffic", query={"limit": 20000, "minimumDensity": 0})
+    rows = next((value for value in rows.values() if isinstance(value, list)), [])
+    density = {int(row.get("segmentId") or row.get("id")): float(row.get("density") or 0) for row in rows}
+    known: dict[str, int] = {}
+
+    def lanes(segment: dict[str, Any]) -> int:
+        prefab = str(segment.get("prefab"))
+        if prefab not in known:
+            try:
+                detail = mt._request("GET", "/state/network-segment-details", query={"id": int(segment["id"])})
+            except (mt.BridgeRequestError, RuntimeError):
+                detail = {}
+            known[prefab] = sum(1 for lane in detail.get("prefabLanes") or []
+                                if lane.get("laneType") == "Vehicle" and "Car" in str(lane.get("vehicleType")))
+        return known[prefab]
+
+    def clear(segment: dict[str, Any], prefab: str) -> bool:
+        seen = _link_preview(segment, prefab)
+        return bool(seen.get("valid")) and not seen.get("under") and not seen.get("powerLines")
+
+    found = [(chain, prefab) for chain, prefab in necks(segments, density, hotspot.get("segmentIds") or [], lanes)
+             if all(clear(segment, prefab) for segment in chain)]  # widened whole or not at all
+    if not found:
+        return None
+    runs = []
+    for chain, prefab in found:
+        ids = [int(segment["id"]) for segment in chain]
+        outcome = protocol.run(f"neck-{label}", "widen_road_chain", {"segmentIds": ids, "roadPrefab": prefab})
+        runs.append({"segments": ids, "prefab": prefab, "ok": outcome["ok"], "regressionOk": outcome["regressionOk"],
+                     "error": (outcome.get("result") or {}).get("error")})
+    return {"ok": all(item["ok"] for item in runs), "regressionOk": all(item["regressionOk"] is not False for item in runs),
+            "runs": runs}
+
+
+def parallel_relief(label: str, hotspot: dict[str, Any]) -> dict[str, Any] | None:
+    """Upgrade a quiet parallel chain beside the hotspot's jammed dominant exit to the exit's own
+    prefab, segment by segment only where the upgrade previews clear of buildings and power lines;
+    None when there is no such chain."""
+    exit_info = (hotspot.get("diagnosis") or {}).get("dominantExit") or {}
+    segments = mt._request("GET", "/state/networks", query={"limit": 50000, "service": "Road"}).get("segments", [])
+    arterial = next((s for s in segments if int(s["id"]) == int(exit_info.get("segmentId") or 0)), None)
+    if arterial is None:
+        return None
+    rows = mt._request("GET", "/state/traffic", query={"limit": 20000, "minimumDensity": 0})
+    rows = next((value for value in rows.values() if isinstance(value, list)), [])
+    density = {int(row.get("segmentId") or row.get("id")): float(row.get("density") or 0) for row in rows}
+    chain = parallel_chain(segments, density, arterial, hotspot.get("segmentIds") or [])
+    prefab = str(arterial["prefab"])
+    clear = [s for s in chain if (lambda seen: seen.get("valid") and not seen.get("under") and not seen.get("powerLines"))(
+        _link_preview(s, prefab))]
+    if sum(math.dist(_point(s, "start"), _point(s, "end")) for s in clear) < PARALLEL_MIN:
+        return None
+    ids = [int(s["id"]) for s in clear]
+    outcome = protocol.run(f"parallel-{label}", "widen_road_chain", {"segmentIds": ids, "roadPrefab": prefab})
+    return {"ok": outcome["ok"], "regressionOk": outcome["regressionOk"], "segments": ids, "prefab": prefab,
+            "error": (outcome.get("result") or {}).get("error")}
+
+
 def _point(segment: dict[str, Any], end: str) -> tuple[float, float]:
     return float(segment[end]["x"]), float(segment[end]["z"])
 
@@ -530,6 +768,10 @@ def _link_preview(segment: dict[str, Any], prefab: str) -> dict[str, Any]:
     check = _upgrade_preview(int(segment["id"]), prefab)
     if not check["valid"]:
         return check
+    if any(word in str(segment.get("prefab")) for word in OFF_GROUND):
+        # an upgrade keeps the road off the ground, over what stands below; the chords would lay it
+        # on the ground through them (live: an elevated ramp over shops read as clearing three)
+        return {**check, "under": [], "powerLines": 0}
     under: dict[int, dict[str, Any]] = {}
     lines = 0
     middle = segment.get("middle") or {"x": (segment["start"]["x"] + segment["end"]["x"]) / 2,
@@ -634,6 +876,24 @@ def act(city: City, label: str, state: dict[str, Any], key: str, hotspot: dict[s
         summary["widening"] = widen(label, candidates)
         state["widened"][key] = summary["widening"]
         return record(state, key, kind, hotspot, {"target": target, "widening": summary["widening"]})
+    if kind == "neck":
+        if not untried("neck"):
+            return None
+        relief = neck_relief(label, hotspot)
+        if relief is None:
+            return None
+        summary["neck"] = relief
+        return record(state, key, kind, hotspot, {"target": "neck", **relief},
+                      None if relief["ok"] and relief["regressionOk"] else "failed")
+    if kind == "parallel":
+        if not untried("parallel"):
+            return None
+        relief = parallel_relief(label, hotspot)
+        if relief is None:
+            return None
+        summary["parallel"] = relief
+        return record(state, key, kind, hotspot, {"target": "parallel", **relief},
+                      None if relief["ok"] and relief["regressionOk"] is not False else "failed")
     if kind == "transit":
         if not untried("line"):
             return None
@@ -718,12 +978,22 @@ def watch(city: City, label: str) -> dict[str, Any]:
         key = item["key"]
         if state["wake"] - state["spent"].get(key, -RETRY_AFTER) < RETRY_AFTER:
             continue
+        if any(item["key"] == key and item["verdict"] is None for item in state["actions"]):
+            # a remedy built here is still to be judged: another on top would leave the verdict unable
+            # to tell which one worked, and the planner hears only once it is judged (live: a bypass
+            # was sought the wake after a widening at the same hotspot; a hotspot went to the planner
+            # the wake after its new exit ramp was built)
+            continue
         remedies = {remedy["kind"]: remedy for remedy in hotspot["remedies"]}
         remedies.setdefault("bypass", {"kind": "bypass", "reason": "structural fallback", "candidates": None})
         action = None
         if metro_ready is None:
             metro_ready = metro.available()
+        failed_here = Counter(item["kind"] for item in state["actions"]
+                              if item["key"] == key and item["verdict"] == "failed")
         for kind in kinds_for(hotspot, remedies, state["kindStats"], metro_ready):
+            if failed_here[kind] >= FAILS_HERE:
+                continue
             action = act(city, label, state, key, hotspot, remedies[kind], summary)
             if action:
                 summary["action"] = {"key": key, "kind": kind, "verdict": action["verdict"],
@@ -732,10 +1002,6 @@ def watch(city: City, label: str) -> dict[str, Any]:
         if action:
             break  # one action a wake: trials run the simulation for game months
         state["spent"][key] = state["wake"]
-        if any(item["key"] == key and item["verdict"] is None for item in state["actions"]):
-            # a remedy built here is still to be judged: the planner hears once it is (live: a hotspot
-            # went to the planner the wake after its new exit ramp was built)
-            continue
         if state["wake"] - state["escalatedAt"].get(key, -ESCALATE_EVERY) >= ESCALATE_EVERY:
             state["escalatedAt"][key] = state["wake"]
             summary["escalation"] = {"key": key, "segments": hotspot["segmentCount"],

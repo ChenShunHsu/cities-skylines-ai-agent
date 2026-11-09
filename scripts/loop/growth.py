@@ -49,6 +49,17 @@ STALE_WAKES = 3
 LABOUR_SHORT = 3  # unemployment, percent, at or below which workers are short
 LABOUR_DEMAND = 30  # workplace demand that says the jobs are still wanted
 LABOUR_HOMES = 2  # residential blocks a wake while workers are short (and none for jobs)
+# jobs are short: many without work while jobs are wanted, though the zoned workplace land is held
+# to be enough (live: unemployment rose 2% to 7% over ten wakes, 439 open jobs for some 2,200 out of
+# work at workplace demand 62, no block zoned while 183 vacant cells were slow to be built on)
+JOBS_SHORT = 6  # unemployment, percent, at or above which jobs are short
+# workplace blocks kept ready to build on while jobs are short, for each point of unemployment from
+# JOBS_SHORT, up to JOBS_MAX; land already zoned and empty counts toward them. The town builds jobs at
+# the pace demand sets, not the pace land is zoned (live: three blocks a wake held unemployment at 7%
+# for seven wakes; nine to twelve a wake for nine more held it there too, while the empty workplace
+# land grew from 156 to 294 cells)
+JOBS_BLOCKS = 3
+JOBS_MAX = 12
 # cells the vacancy must fall by, from where the wait began, to count as being built on: scraps a
 # block cannot grow on wobble it by a few cells either way (live: 77, 86, 77 cells for four wakes at
 # 27,200 people with residential demand at 48, and no block zoned)
@@ -90,20 +101,44 @@ def absorbed_allowance(category: dict[str, Any], record: dict[str, Any] | None) 
 
 def stale_allowance(category: dict[str, Any], record: dict[str, Any]) -> tuple[int | None, dict[str, Any]]:
     """A few blocks when the pacing has waited STALE_WAKES with demand and a vacancy that is not
-    being built on: it has not fallen STALE_DROP cells below where the wait began."""
+    being built on: the occupied cells have not grown STALE_DROP cells since the wait began (or,
+    without an occupancy reading, the vacancy has not fallen STALE_DROP cells). The occupied cells
+    say what was built; the vacancy also moves with rezoning and cleared lots (live: residential
+    demand 63, vacancy 115-148 that rose and fell with rezoned shop land, so the wait kept starting
+    over while the town stood at 49,400)."""
     # a pacing that allows one block keeps waiting too: alternating 0 and 1 the wait never added up
     # (live: 27,200 people, residential demand 50, allowances 1, 0, 0, 1 and the town shrinking)
     waiting = category.get("maximumAdditionalBlocksThisWake", 0) <= 1 and (category.get("demand") or 0) >= 20
     vacancy = category.get("developableVacantCells")
-    began = record.get("vacancy")
-    if waiting and vacancy is not None and began is not None and record.get("waits") \
-            and vacancy > began - STALE_DROP:
-        record = {"vacancy": began, "waits": record.get("waits", 0) + 1}
+    occupied = category.get("occupiedCells")
+    began, built = record.get("vacancy"), record.get("occupied")
+    if occupied is not None and built is not None:
+        unbuilt = occupied < built + STALE_DROP
     else:
-        record = {"vacancy": vacancy, "waits": 1 if waiting else 0}
+        unbuilt = vacancy is not None and began is not None and vacancy > began - STALE_DROP
+    if waiting and vacancy is not None and record.get("waits") and unbuilt:
+        record = {"vacancy": began, "occupied": built, "waits": record.get("waits", 0) + 1}
+    else:
+        record = {"vacancy": vacancy, "occupied": occupied, "waits": 1 if waiting else 0}
     if record["waits"] >= STALE_WAKES:
-        return 3, {"vacancy": vacancy, "waits": 0}
+        return 3, {"vacancy": vacancy, "occupied": occupied, "waits": 0}
     return None, record
+
+
+def _unemployment() -> float | None:
+    """The city's unemployment, or None when it cannot be read: the labour rules then stand aside."""
+    try:
+        return (mt.city_health().get("employment") or {}).get("unemployment")
+    except (mt.BridgeRequestError, RuntimeError):
+        return None
+
+
+def jobs_unfilled(categories: dict[str, Any], unemployment: float | None) -> bool:
+    """Few are without work while homes are wanted: new jobs would wait for the people the homes
+    bring, whatever the workplace demand (live: unemployment 2%, workplace demand 27 just under
+    LABOUR_DEMAND, and three more workplace blocks were zoned)."""
+    return unemployment is not None and unemployment <= LABOUR_SHORT \
+        and (categories["residential"].get("demand") or 0) >= LABOUR_DEMAND
 
 
 def labour_short(categories: dict[str, Any], unemployment: float | None) -> bool:
@@ -111,6 +146,12 @@ def labour_short(categories: dict[str, Any], unemployment: float | None) -> bool
     return unemployment is not None and unemployment <= LABOUR_SHORT \
         and (categories["workplace"].get("demand") or 0) >= LABOUR_DEMAND \
         and (categories["residential"].get("demand") or 0) >= LABOUR_DEMAND
+
+
+def jobs_short(categories: dict[str, Any], unemployment: float | None) -> bool:
+    """Jobs are short: many without work and jobs still wanted."""
+    return unemployment is not None and unemployment >= JOBS_SHORT \
+        and (categories["workplace"].get("demand") or 0) >= LABOUR_DEMAND
 
 
 def allowances(categories: dict[str, Any], state: dict[str, Any],
@@ -123,25 +164,46 @@ def allowances(categories: dict[str, Any], state: dict[str, Any],
         absorbed = absorbed_allowance(category, state["absorption"].get(use))
         result[use] = max(base, stale or 0, absorbed or 0)
     if labour_short(categories, unemployment):
-        # and no more jobs: zoned now they would stand short of workers too (live: six office blocks
-        # zoned in the wake unemployment reached 2%)
         result["residential"] = max(result["residential"], LABOUR_HOMES)
+    if jobs_short(categories, unemployment):
+        wanted = min(JOBS_MAX, JOBS_BLOCKS * int(unemployment - JOBS_SHORT + 1)) \
+            - int(categories["workplace"].get("developableVacantCells") or 0) // CELLS_PER_BLOCK
+        result["workplace"] = max(result["workplace"], wanted)
+    if jobs_unfilled(categories, unemployment):
+        # no more jobs: zoned now they would stand short of workers too (live: six office blocks
+        # zoned in the wake unemployment reached 2%)
         result["workplace"] = 0
     return result
 
 
 def zone_workplace(city: City, allowance: int, label: str, skipped: list[int],
-                   offices: bool) -> list[dict[str, Any]]:
+                   offices: bool, offices_first: bool = False) -> list[dict[str, Any]]:
     """Jobs: industrial blocks first, then, once offices are unlocked, offices for the rest of the
     allowance in the land between industry and homes (land_use: homes may not take it). Industry
     keeps its own districts; offices pollute nothing, so the buffer holds jobs instead of standing
     empty (live: 254 free blocks allowed only shops, unemployment rose to 12% while industry
-    waited for land, and the town stalled at 6,400)."""
-    zoned = zone_blocks(city, "workplace", allowance, label, skipped)
-    left = allowance - sum(1 for item in zoned if item["ok"])
-    if offices and left > 0:
-        zoned += zone_blocks(city, "office", left, label, skipped)
+    waited for land, and the town stalled at 6,400). Offices go first when they fill faster
+    (office_fills_faster)."""
+    order = ("office", "workplace") if offices and offices_first else ("workplace", "office") if offices \
+        else ("workplace",)
+    zoned: list[dict[str, Any]] = []
+    for use in order:
+        left = allowance - sum(1 for item in zoned if item["ok"])
+        if left > 0:
+            zoned += zone_blocks(city, use, left, label, skipped)
     return zoned
+
+
+def office_fills_faster(capacity: dict[str, Any]) -> bool:
+    """Office land stands less vacant than industrial land: the town's workers take office jobs
+    sooner (an educated town wants offices over industry; live: 0.9% of office land vacant, 2.0% of
+    industrial, while unemployment held at 7% and industry was zoned first)."""
+    by_zone = {item.get("zone"): item for item in (capacity.get("zones") or {}).get("capacityByZone") or []}
+
+    def vacant(zone: str) -> float:
+        item = by_zone.get(zone) or {}
+        return (item.get("developableVacantCells") or 0) / max(1, item.get("validUnsharedCells") or 0)
+    return "Office" in by_zone and "Industrial" in by_zone and vacant("Office") < vacant("Industrial")
 
 
 def zone_blocks(city: City, use: str, allowance: int, label: str, skipped: list[int],
@@ -930,7 +992,7 @@ def grow(city: City, label: str, high_density: bool = False, hold_land: str | No
     outside = ensure_outside(city, label, state)
     capacity = mt.call_tool("inspect_growth_capacity", {"limit": 1})
     categories = capacity["growthPacing"]["categories"]
-    unemployment = (mt.city_health().get("employment") or {}).get("unemployment")
+    unemployment = _unemployment()
     allowed = allowances(categories, state, unemployment)
     report: dict[str, Any] = {"allowed": allowed, "zoned": [], "densified": [], "exhausted": [], "short": [],
                               "demand": {use: categories[use].get("demand") for use in USES},
@@ -938,7 +1000,8 @@ def grow(city: City, label: str, high_density: bool = False, hold_land: str | No
                               "outside": outside}
     center = None
     for use in USES:
-        zoned = zone_workplace(city, allowed[use], label, state["skipped"], offices) if use == "workplace" \
+        zoned = zone_workplace(city, allowed[use], label, state["skipped"], offices,
+                               office_fills_faster(capacity)) if use == "workplace" \
             else zone_blocks(city, use, allowed[use], label, state["skipped"], high_density)
         report["zoned"] += zoned
         new_blocks = sum(1 for item in zoned if item["ok"])
@@ -960,8 +1023,13 @@ def grow(city: City, label: str, high_density: bool = False, hold_land: str | No
     # new land for the use that most needs it, once its own blocks fall short of what it may zone:
     # a use that still finds a block or two a wake never ran out, and no land opened while its
     # demand stood at 60 (live: homes zoned 2 of 4 blocks a wake for five wakes at 11,500 people)
+    # while workers are short, homes need new land at the demand they are zoned at (live: the town
+    # shrank by 2.5% over fifteen wakes, unemployment 3%, twelve home blocks allowed and none left to
+    # zone at residential demand 39, so no district was opened)
+    workers_short = labour_short(categories, unemployment)
     wanting = sorted((use for use in report["short"]
-                      if use in EXPAND_USES and (categories[use].get("demand") or 0) >= EXPAND_DEMAND),
+                      if use in EXPAND_USES and ((categories[use].get("demand") or 0) >= EXPAND_DEMAND
+                                                 or use == "residential" and workers_short)),
                      key=lambda use: -(categories[use].get("demand") or 0))
     if outside and outside.get("ok") is False:
         report["expansion"] = {"use": "residential", **outside}  # no link to the outside: nothing can grow

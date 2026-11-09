@@ -571,7 +571,7 @@ class StepTests(unittest.TestCase):
     def step(self, state, count, traffic_summary=None, plan=None, build=None, remote=None, **wake_kwargs):
         city, saved = self.city(state)
         reads = {"/state/networks": {"segments": []}, "/state/growables": {"buildings": []},
-                 "/state/facilities": {"facilities": []}}
+                 "/state/facilities": {"facilities": []}, "/commands/preview-bulldoze-impact": {"ok": True}}
         with mock.patch.object(cargo.mt, "_request", side_effect=lambda m, p, query=None, body=None: reads[p]), \
                 mock.patch.object(cargo, "plan", return_value=plan or {"ok": False, "why": "noSite"}) as planned, \
                 mock.patch.object(cargo_remote, "build", return_value=remote), \
