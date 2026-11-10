@@ -693,6 +693,9 @@ def _require_fiscal_cooldown_clear() -> dict[str, Any]:
     return state
 
 
+ALL_MILESTONES_POPULATION = 50_000  # the last milestone asks 65,000 people; a town may shrink a little after
+
+
 def _assess_progression_mode(snapshot: dict[str, Any]) -> dict[str, Any]:
     progression = snapshot.get("progression", {})
     milestone = str(progression.get("currentMilestone", "")).strip()
@@ -715,7 +718,9 @@ def _assess_progression_mode(snapshot: dict[str, Any]) -> dict[str, Any]:
     display_cash = raw_cash / MONEY_INTERNAL_SCALE
     population = int(health.get("population", 0) or 0)
     reasons = []
-    if not milestone and len(late_capabilities) >= 4:
+    # every milestone passed reads as no current milestone too: a town that size earned its unlocks
+    # (live: the last milestone, 65,000 people, passed at 64,948 read, and every change was blocked)
+    if not milestone and len(late_capabilities) >= 4 and population < ALL_MILESTONES_POPULATION:
         reasons.append(
             "No current milestone is reported while multiple late-game capabilities are unlocked."
         )

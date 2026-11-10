@@ -5022,6 +5022,16 @@ class MayorToolsTests(unittest.TestCase):
         self.assertEqual(2, len(assessment["reasons"]))
         self.assertEqual(715_000, assessment["displayCash"])
 
+    def test_progression_guard_accepts_a_town_past_every_milestone(self):
+        snapshot = {"progression": {"currentMilestone": "", "nextMilestone": None,
+                                    "capabilities": {name: True for name in ("highDensityResidential", "office",
+                                                                              "healthcare", "education", "bus",
+                                                                              "metro", "train")}},
+                    "cityHealth": {"cash": {"amount": 147_000_000}, "population": 64_948}}
+        self.assertTrue(MAYOR_TOOLS._assess_progression_mode(snapshot)["normalProgression"])
+        snapshot["cityHealth"]["population"] = 3_000  # everything unlocked in a small town: not earned
+        self.assertFalse(MAYOR_TOOLS._assess_progression_mode(snapshot)["normalProgression"])
+
     def test_progression_guard_accepts_normal_new_map(self):
         assessment = MAYOR_TOOLS._assess_progression_mode(
             {
