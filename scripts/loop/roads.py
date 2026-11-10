@@ -54,7 +54,7 @@ def preview(prefab: str, start: tuple[float, float], end: tuple[float, float], l
         return False, body, {"valid": False, "errors": str(error)[:200]}
     hits = (result.get("buildingsUnderRoad") or []) + (result.get("powerLinesCrossed") or [])
     if hits:
-        return False, body, {"valid": False, "obstacles": hits}
+        return False, body, {"valid": False, "obstacles": hits, "errors": result.get("toolErrors")}
     terrain = result.get("terrainProfile") or {}
     risk = result.get("nativeMoveMiddleNodeRisk")
     risky = bool(risk.get("risk") if isinstance(risk, dict) else risk)
@@ -150,12 +150,26 @@ def clear_buildings(label: str, ids: list[int]) -> dict[str, Any]:
     return {"ok": True, "cleared": cleared}
 
 
+def blocked_beyond(info: dict[str, Any]) -> bool:
+    """Something besides the homes, shops and workplaces under the road stops it: the game reports a
+    collision for them only rarely (a building counts when it is important), so a collision with
+    nothing but growables under it is another road or building the clearing would not move (live:
+    four homes cleared for a bypass piece the game then refused for the same collision; probing roads
+    over growables only, 66 of 68 collisions lay on or beside another road, 13 of 15 clear ones did
+    not)."""
+    obstacles = [item for item in info.get("obstacles") or [] if "service" in item]
+    return bool(obstacles) and all(item["service"] in GROWABLE for item in obstacles) \
+        and "ObjectCollision" in str(info.get("errors") or "")
+
+
 def build_through(label: str, prefab: str, start: tuple[float, float], end: tuple[float, float],
                   city: City | None = None, keep_failed: bool = False) -> dict[str, Any]:
     """build, after clearing the homes, shops and workplaces the road would run over; a service
     building in the way is left standing and the road is not built."""
     _, _, info = preview(prefab, start, end, label)
     under = [item for item in info.get("obstacles", []) if "service" in item]
+    if blocked_beyond(info):
+        return {"label": label, "ok": False, "stage": "blockedBeyond", "error": info.get("errors")}
     if under and all(item["service"] in GROWABLE for item in under):
         cleared = clear_buildings(label, [item["id"] for item in under])
         if not cleared["ok"]:

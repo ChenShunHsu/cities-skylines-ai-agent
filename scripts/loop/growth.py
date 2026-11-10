@@ -936,7 +936,7 @@ def open_through(city: City, label: str, way: dict[str, Any]) -> dict[str, Any]:
         end = (piece["end"]["x"], piece["end"]["z"])
         ok, _, info = roads.preview("Basic Road", start, end, f"through-{label}")
         obstacles = info.get("obstacles") or []
-        if not ok and not obstacles:
+        if not ok and (not obstacles or roads.blocked_beyond(info)):
             return {"ok": False, "stage": "ground", "reason": info.get("errors")}
         for item in obstacles:
             if "segmentId" in item and "service" not in item:

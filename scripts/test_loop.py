@@ -2997,6 +2997,41 @@ class BypassPiecewiseTests(unittest.TestCase):
         self.assertEqual(("piece1", "beforeClearing", True), (result["stage"], result["pieceStage"], result["undone"]))
 
 
+    def test_a_collision_beside_growables_only_is_refused_before_they_are_cleared(self):
+        candidate = {"buildable": True, "servesVehicles": 40, "clearGrowables": [1], "from": {"x": 0, "z": 0},
+                     "pieces": [{"end": {"x": 90, "z": 0}}], "previews": [{"clearGrowables": [1]}],
+                     "length": 90, "detour": 1.1}
+        proposal = {"hotspots": [{"segmentIds": [1, 2, 3], "candidates": [candidate]}]}
+        seen = {"valid": False, "obstacles": [{"id": 1, "service": "Residential"}], "errors": "ObjectCollision"}
+        with mock.patch.object(traffic.mt, "call_tool", return_value=proposal), \
+                mock.patch.object(traffic.roads, "preview", return_value=(False, {}, seen)), \
+                mock.patch.object(traffic.roads, "clear_buildings") as clear, \
+                mock.patch.object(traffic.roads, "build") as build:
+            result = traffic.bypass(None, "a", {"segmentIds": [1, 2, 3]})
+        clear.assert_not_called()
+        build.assert_not_called()
+        self.assertEqual(("piece0", "beforeClearing"), (result["stage"], result["pieceStage"]))
+
+    def test_only_a_collision_with_growables_alone_under_the_road_is_put_down_to_something_else(self):
+        home, school = {"id": 1, "service": "Residential"}, {"id": 2, "service": "Education"}
+        line = {"segmentId": 7}
+        self.assertTrue(roads.blocked_beyond({"obstacles": [home, line], "errors": "ObjectCollision"}))
+        self.assertFalse(roads.blocked_beyond({"obstacles": [home], "errors": "None"}))
+        # an important building is a collision of its own: the caller judges it
+        self.assertFalse(roads.blocked_beyond({"obstacles": [home, school], "errors": "ObjectCollision"}))
+        self.assertFalse(roads.blocked_beyond({"obstacles": [line], "errors": "ObjectCollision"}))
+        self.assertFalse(roads.blocked_beyond({"valid": False, "errors": "ObjectCollision"}))
+
+    def test_a_road_through_growables_with_another_collision_clears_nothing(self):
+        seen = {"valid": False, "obstacles": [{"id": 1, "service": "Commercial"}], "errors": "ObjectCollision"}
+        with mock.patch.object(roads, "preview", return_value=(False, {}, seen)), \
+                mock.patch.object(roads, "clear_buildings") as clear, mock.patch.object(roads, "build") as build:
+            result = roads.build_through("a", "Basic Road", (0, 0), (90, 0))
+        clear.assert_not_called()
+        build.assert_not_called()
+        self.assertEqual("blockedBeyond", result["stage"])
+
+
 class BypassNoneTests(unittest.TestCase):
     def test_a_hotspot_with_no_connector_to_build_is_not_counted_against_bypasses(self):
         state = {"kindStats": {}, "actions": [], "wake": 3}

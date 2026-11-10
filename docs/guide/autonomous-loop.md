@@ -111,7 +111,8 @@ accepted and is the default). Each wake runs as its own process
    the queue's way out) is widened to match them, and a quiet road running beside a jammed exit
    is widened to take a share of it. A bypass starts upstream of the hotspot, where its traffic enters, and is
    built piece by piece: homes and small utility buildings (water towers, wind turbines) under a
-   piece are cleared after their own bulldoze preview, and a piece that fails takes down the
+   piece are cleared after their own bulldoze preview (none when the game reports a collision with
+   only homes and shops under it: another road stops it), and a piece that fails takes down the
    pieces already built. Freight from the industry gets a cargo train terminal: beside the railway
    when a lot fits, else by the industry with a tunnel to the railway (`loop/cargo_remote.py`),
    whose ramp up into the railway is laid in two pieces; a failed try counts against the three

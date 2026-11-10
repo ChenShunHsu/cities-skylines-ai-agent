@@ -461,8 +461,8 @@ def bypass(city: City, label: str, hotspot: dict[str, Any]) -> dict[str, Any] | 
             fits, _, seen = roads.preview("Basic Road", start, (piece["end"]["x"], piece["end"]["z"]),
                                           f"bypass-{label}-{index}")
             obstacles = seen.get("obstacles") or []
-            if not fits and (not obstacles or any(item.get("id") not in under and item.get("service") not in roads.GROWABLE
-                                                  for item in obstacles)):
+            if not fits and (not obstacles or roads.blocked_beyond(seen) or any(
+                    item.get("id") not in under and item.get("service") not in roads.GROWABLE for item in obstacles)):
                 return failed(f"piece{index}", pieceStage="beforeClearing", error=str(seen)[:300])
             clearing = roads.clear_buildings("bypass", [item for item in under if item not in cleared])
             cleared += clearing["cleared"]
