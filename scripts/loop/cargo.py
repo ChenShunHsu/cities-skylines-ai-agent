@@ -5,7 +5,7 @@ of town over one highway link, cargo trucks among them, while industry kept repo
 Trigger: NoResources on at least NO_RESOURCES_MIN buildings for PERSIST wakes running, or a traffic
 hotspot seen for PERSIST wakes whose diagnosis offers the cargoRail remedy (trucks are most of it).
 Train must be unlocked. The terminal is built once; a failed attempt is tried again (another site)
-after RETRY_AFTER wakes, at most MAX_ATTEMPTS times.
+after RETRY_AFTER wakes, at most MAX_ATTEMPTS times within ATTEMPT_MEMORY wakes.
 
 Site: the map's railway is the train track reaching an outside connection. Its segments are ranked
 by the industry within INDUSTRY_REACH (NoResources buildings count three times), and the terminal is
@@ -80,6 +80,10 @@ MAX_RAIL_PREVIEWS = 120  # rail piece previews a plan may ask for
 MAX_CLEARED = 8
 MAX_HOMES = 2
 MAX_ATTEMPTS = 3
+# wakes a failed attempt counts against MAX_ATTEMPTS and its site is passed over: the town around
+# the way changes (live: three tries by the industry failed and none was made for 300 wakes, while
+# NoResources stood at 12-21 buildings; tried again, the lot, lead and ramp down that had failed held)
+ATTEMPT_MEMORY = 40
 GONE = "Building was not found"
 RETRY_AFTER = 10
 JUDGE_AFTER = 8
@@ -869,8 +873,9 @@ def step(city: City, label: str, wake: dict[str, Any], traffic: dict[str, Any]) 
         if not seen["persisting"] and not seen["cargoHotspots"]:
             return {**report, "ok": None, "reason": "noEvidence"}
         # the tries beside the railway and those by the industry (loop.cargo_remote) count apart
-        attempts = [item for item in state["attempts"] if item.get("counts") and item.get("key") != "remote"]
-        remote_attempts = [item for item in state["attempts"] if item.get("counts") and item.get("key") == "remote"]
+        recent = [item for item in state["attempts"] if state["wake"] - item["wake"] < ATTEMPT_MEMORY]
+        attempts = [item for item in recent if item.get("counts") and item.get("key") != "remote"]
+        remote_attempts = [item for item in recent if item.get("counts") and item.get("key") == "remote"]
         if len(attempts) >= MAX_ATTEMPTS and len(remote_attempts) >= MAX_ATTEMPTS:
             return {**report, "ok": None, "reason": "attemptsSpent"}
         last = max((item["wake"] for item in state["attempts"]), default=None)
@@ -883,7 +888,7 @@ def step(city: City, label: str, wake: dict[str, Any], traffic: dict[str, Any]) 
             growables = next((value for value in mt._request("GET", "/state/growables", query={"limit": 50000})
                               .values() if isinstance(value, list)), [])
             facilities = mt._request("GET", "/state/facilities", query={"limit": 50000}).get("facilities", [])
-            tried = {item["key"] for item in state["attempts"] if item.get("key")}
+            tried = {item["key"] for item in recent if item.get("key")}
             site = plan(segments, growables, facilities, tried) if len(attempts) < MAX_ATTEMPTS                 else {"ok": False, "why": "besideSpent"}
         except (mt.BridgeRequestError, RuntimeError) as error:
             # nothing was built while planning: a busy game thread waits for the next wake, and a
@@ -900,7 +905,9 @@ def step(city: City, label: str, wake: dict[str, Any], traffic: dict[str, Any]) 
                 return {**report, "ok": None, "reason": site.get("why"), "refused": site.get("refused"),
                         **({"remote": remote} if remote else {})}
             state["attempts"].append({"wake": state["wake"], "key": "remote", "ok": remote["ok"], "counts": True,
-                                      "stage": remote.get("stage"), "undo": remote.get("undo")})
+                                      "stage": remote.get("stage"), "undo": remote.get("undo"),
+                                      **{key: remote[key] for key in ("piece", "kind", "at", "why", "error")
+                                         if remote.get(key) is not None}})
             if remote["ok"]:
                 recent = state["history"][-PERSIST:]
                 state["built"] = {"wake": state["wake"], "buildingId": remote["buildingId"], "links": remote["links"],

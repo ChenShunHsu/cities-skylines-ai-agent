@@ -9,7 +9,9 @@ the densest one; the first lot whose way out holds (way_out, from where its trac
 Track, from the end of the terminal's own track nearest the railway: LEAD metres straight on at the
 ground, a ramp RAMP metres down to DEPTH, tunnel pieces of about PIECE metres to an approach point
 RAMP metres from a plain node of the railway, and a ramp up into that node at APPROACH degrees to the
-railway (a train joins a track at a real angle; straight on, the game would merge the pieces). Tunnel
+railway (a train joins a track at a real angle; straight on, the game would merge the pieces), in two
+pieces: up to RISE_DEPTH halfway, then into the railway (live: one ramp joined to both the tunnel and
+the railway collided at every depth of its foot, while its halves, each joined at both ends, held). Tunnel
 pieces zigzag ZIGZAG metres either side of the straight way and go deeper (DEPTHS) where they would
 hit something, as the metro's do (loop.metro), the last coming back to DEPTH for the ramp up. Every
 piece is previewed before it is built; the Bridge passes a train track underground at both ends
@@ -50,6 +52,7 @@ DEPTHS = (DEPTH, -20.0, -28.0)
 PIECE = 80.0
 ZIGZAG = 10.0
 APPROACH = 30.0
+RISE_DEPTH = DEPTH / 2
 MIN_LENGTH = 600.0  # nearer than this the planner beside the railway serves
 APPROACH_NODES = 6
 DOWN_TURNS = (0.0, 20.0, -20.0)
@@ -133,7 +136,8 @@ def route(start: Point, outward: Point, end: Point, node: Point, turn: float = 0
             x, z = x + side[0] * offset, z + side[1] * offset
         points.append((round(x, 2), round(z, 2)))
     pieces += [(a, b, "tunnel") for a, b in zip(points, points[1:])]
-    return pieces + [(end, node, "up")]
+    half = (round((end[0] + node[0]) / 2, 2), round((end[1] + node[1]) / 2, 2))
+    return pieces + [(end, half, "rise"), (half, node, "up")]
 
 
 def _preview(start: Point, end: Point, start_depth: float, end_depth: float) -> bool:
@@ -280,8 +284,9 @@ def build(label: str, growables: list[dict[str, Any]], segments: list[dict[str, 
     checkpoint = protocol.checkpoint(f"{label}-track")
     depth = 0.0
     for index, (a, b, kind) in enumerate(pieces):
-        last_tunnel = kind == "tunnel" and pieces[index + 1][2] == "up"
-        choices = {"lead": (0.0,), "down": (DEPTH,), "up": (0.0,)}.get(kind, (DEPTH,) if last_tunnel else DEPTHS)
+        last_tunnel = kind == "tunnel" and pieces[index + 1][2] == "rise"
+        choices = {"lead": (0.0,), "down": (DEPTH,), "rise": (RISE_DEPTH,), "up": (0.0,)}.get(
+            kind, (DEPTH,) if last_tunnel else DEPTHS)
         end_depth = next((d for d in choices if _preview(a, b, depth, d)), None)
         if end_depth is None:
             return failed("preview", piece=index, kind=kind, at=a, why=_why(a, b, depth, choices[0]), cleared=under)

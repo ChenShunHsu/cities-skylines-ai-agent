@@ -530,8 +530,9 @@ class RemoteTerminalTests(unittest.TestCase):
         pieces = cargo_remote.route((0.0, 0.0), (1.0, 0.0), (1000.0, 0.0), (1100.0, 80.0))
         kinds = [kind for _, _, kind in pieces]
         self.assertEqual(["lead", "down"], kinds[:2])
-        self.assertEqual("up", kinds[-1])
-        self.assertTrue(all(kind == "tunnel" for kind in kinds[2:-1]))
+        self.assertEqual(["rise", "up"], kinds[-2:])  # the ramp up in two pieces, halfway between
+        self.assertEqual((1050.0, 40.0), pieces[-1][0])
+        self.assertTrue(all(kind == "tunnel" for kind in kinds[2:-2]))
         self.assertEqual((40.0, 0.0), pieces[0][1])
         down = (pieces[1][1][0] - 40.0, pieces[1][1][1])  # turned off the lead, not straight on
         self.assertAlmostEqual(cargo_remote.MIN_BEND, abs(math.degrees(math.atan2(down[1], down[0]))), places=1)
@@ -640,6 +641,16 @@ class StepTests(unittest.TestCase):
         both = {**spent, "attempts": spent["attempts"] + [{"wake": 0, "key": "remote", "counts": True}] * 3}
         report, _, planned, _ = self.step(both, 9)
         self.assertEqual("attemptsSpent", report["reason"])
+        # the town changes: attempts older than ATTEMPT_MEMORY wakes no longer count, nor their sites
+        _, _, planned, _ = self.step({**both, "wake": cargo.ATTEMPT_MEMORY}, 9, plan=site)
+        self.assertEqual(set(), planned.call_args.args[3])
+
+    def test_a_failed_attempt_by_the_industry_keeps_where_it_failed(self):
+        remote = {"ok": False, "stage": "preview", "piece": 9, "kind": "up", "at": [1.0, 2.0],
+                  "why": {"toolErrors": "ObjectCollision"}, "undo": {"removedAll": True}}
+        _, state, _, _ = self.step({"history": [9, 9]}, 9, remote=remote)
+        self.assertEqual(("preview", 9, "up", {"toolErrors": "ObjectCollision"}),
+                         tuple(state["attempts"][-1][key] for key in ("stage", "piece", "kind", "why")))
 
     def test_no_site_by_the_railway_tries_a_terminal_by_the_industry(self):
         remote = {"ok": True, "buildingId": 7, "links": [1, 2, 3], "railNode": 9, "pieces": 3, "length": 2400,

@@ -107,8 +107,10 @@ accepted and is the default). Each wake runs as its own process
    built piece by piece: homes and small utility buildings (water towers, wind turbines) under a
    piece are cleared after their own bulldoze preview, and a piece that fails takes down the
    pieces already built. Freight from the industry gets a cargo train terminal: beside the railway
-   when a lot fits, else by the industry with a tunnel to the railway (`loop/cargo_remote.py`);
-   a terminal that no longer stands is let go, so the industry may get one again where it needs it.
+   when a lot fits, else by the industry with a tunnel to the railway (`loop/cargo_remote.py`),
+   whose ramp up into the railway is laid in two pieces; a failed try counts against the three
+   allowed for 40 wakes only, as the town around the way changes, and a terminal that no longer
+   stands is let go, so the industry may get one again where it needs it.
 
 Every change runs under the protocol in `protocol.py`: checkpoint, regression baseline, change,
 settle, verify. The checkpoint save is taken once per phase of a wake (utilities, growth,
