@@ -113,6 +113,36 @@ def same(a: list[int], b: list[int]) -> bool:
     return len(left & right) >= 0.5 * min(len(left), len(right))
 
 
+def track(previous: list[dict[str, Any]], hotspots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each hotspot this wake with the key and count of wakes seen of the one it carries on from: the
+    earlier hotspots (same) are shared out largest overlap first, one to each, and the worst hotspot
+    keeps a key when two carry the same one; one with none is named for its own segment. A key is one
+    hotspot's: a piece of a jam that split, or a jam that grew into another's, keeps the wakes seen
+    but takes a key of its own (live: two hotspots 1-1.3km from the first carried its key for 30
+    game years, so the remedies tried at any of the three counted against all three)."""
+    pairs = sorted(((len(set(item["segmentIds"]) & set(hotspot["segmentIds"])), -here, -there)
+                    for here, hotspot in enumerate(hotspots) for there, item in enumerate(previous)
+                    if same(item["segmentIds"], hotspot["segmentIds"])), reverse=True)
+    match: dict[int, int] = {}
+    for _, here, there in pairs:
+        if -here not in match and -there not in match.values():
+            match[-here] = -there
+    seen = {-here: previous[-there]["seen"] for _, here, there in reversed(pairs)}  # the most overlapped
+    keys: dict[int, str] = {}
+    for here in sorted(match):  # worst first, as listed
+        key = previous[match[here]].get("key")
+        if key and key not in keys.values():
+            keys[here] = key
+    tracked = []
+    for here, hotspot in enumerate(hotspots):
+        ids = sorted(hotspot["segmentIds"])
+        key = keys.get(here) or next(f"hotspot-{name}" for name in ids + [f"{ids[0]}-{here}"]
+                                     if f"hotspot-{name}" not in keys.values())
+        keys[here] = key
+        tracked.append({"segmentIds": hotspot["segmentIds"], "seen": seen.get(here, 0) + 1, "key": key})
+    return tracked
+
+
 def order(kinds: list[str], stats: dict[str, dict[str, int]]) -> list[str]:
     """The kinds that have worked most often in this city first: each one's share of tries that
     worked, counted from one worked and one failed so an untried kind stands at a half and a few
@@ -952,11 +982,7 @@ def watch(city: City, label: str) -> dict[str, Any]:
     state["wake"] += 1
     proposal = mt.call_tool("propose_traffic_remedies", {"limit": 5})
     hotspots = proposal["hotspots"]
-    tracked = []
-    for hotspot in hotspots:
-        previous = next((item for item in state["hotspots"] if same(item["segmentIds"], hotspot["segmentIds"])), None)
-        tracked.append({"segmentIds": hotspot["segmentIds"], "seen": (previous or {"seen": 0})["seen"] + 1,
-                        "key": (previous or {}).get("key") or f"hotspot-{min(hotspot['segmentIds'])}"})
+    tracked = track(state["hotspots"], hotspots)
     state["hotspots"] = tracked  # a hotspot that cleared this wake starts over
     summary: dict[str, Any] = {"status": proposal["status"], "flowRatio": proposal["flowRatio"],
                                "hotspots": [(len(item["segmentIds"]), item["seen"]) for item in tracked]}

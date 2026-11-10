@@ -104,7 +104,9 @@ accepted and is the default). Each wake runs as its own process
    ranks (downstream relief, transit, junction trials, widening, a bypass from
    `propose_bypass_roads`), one action a wake, each judged afterwards; kinds go in the order of
    their success rate in this city, a kind that failed twice at a hotspot is not tried there again,
-   and a hotspot whose last remedy is still to be judged gets no other. Two more kinds work on the
+   and a hotspot whose last remedy is still to be judged gets no other. A hotspot carries on from the
+   earlier one it overlaps most, one to each: a jam that splits gives each piece a record of its own.
+   Two more kinds work on the
    roads around the jam: a lane drop (a narrower stretch between wider roads of the same kind on
    the queue's way out) is widened to match them, and a quiet road running beside a jammed exit
    is widened to take a share of it. A bypass starts upstream of the hotspot, where its traffic enters, and is

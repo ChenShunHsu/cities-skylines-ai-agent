@@ -1584,6 +1584,23 @@ class TrafficTests(unittest.TestCase):
         self.assertNotIn("transit", tried)
         self.assertIn("bypass", tried)
 
+    def test_a_key_is_one_hotspots(self):
+        previous = [{"segmentIds": [1, 2, 3, 4], "seen": 9, "key": "hotspot-1"}]
+        # the jam split: the larger piece keeps the key, the other keeps the wakes seen under its own
+        tracked = traffic.track(previous, [{"segmentIds": [3, 4, 7]}, {"segmentIds": [1, 2, 3, 4, 5]}])
+        self.assertEqual([("hotspot-3", 10), ("hotspot-1", 10)], [(t["key"], t["seen"]) for t in tracked])
+        # keys shared already (as live) part again, worst first keeping it
+        previous = [{"segmentIds": [201, 202], "seen": 270, "key": "hotspot-201"},
+                    {"segmentIds": [559, 560], "seen": 270, "key": "hotspot-201"}]
+        tracked = traffic.track(previous, [{"segmentIds": [201, 202]}, {"segmentIds": [559, 560]},
+                                           {"segmentIds": [9]}])
+        self.assertEqual(["hotspot-201", "hotspot-559", "hotspot-9"], [t["key"] for t in tracked])
+        self.assertEqual([271, 271, 1], [t["seen"] for t in tracked])
+        # a hotspot carried on keeps its key before a new one is named, and a new name repeats none
+        tracked = traffic.track([{"segmentIds": [5, 6], "seen": 3, "key": "hotspot-1"}],
+                                [{"segmentIds": [1, 9]}, {"segmentIds": [5, 6]}])
+        self.assertEqual(["hotspot-9", "hotspot-1"], [t["key"] for t in tracked])
+
     def test_judge_by_density_or_disappearance(self):
         state = {"wake": 5, "kindStats": {}, "actions": [
             {"key": "a", "kind": "widen", "wake": 2, "meanDensity": 99, "segments": 10, "detail": {}, "verdict": None},
