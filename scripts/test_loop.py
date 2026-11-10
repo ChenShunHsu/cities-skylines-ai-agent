@@ -1025,6 +1025,21 @@ class OpenDistrictTests(unittest.TestCase):
     def test_no_new_land_while_homes_lack_water_or_power(self):
         self.assertFalse(self.grow(zoned_ok=False, hold_land="waitingForUtilities"))
 
+    def test_a_block_a_building_stands_on_in_part_is_zoned_in_its_free_cells_only(self):
+        candidates = [{"blockId": 1, "roadPrefab": "Basic Road"}, {"blockId": 2, "roadPrefab": "Basic Road", "partial": True},
+                      {"blockId": 3, "roadPrefab": "Basic Road", "partial": True}]
+        city = mock.Mock(plan=[])
+        with mock.patch.object(growth.mt, "call_tool", return_value={"candidates": candidates}), \
+                mock.patch.object(growth, "_held", side_effect=lambda block, zone, partial: block == 3), \
+                mock.patch.object(growth.protocol, "run", return_value={"ok": True, "regressionOk": True}) as run:
+            skipped = []
+            zoned = growth.zone_blocks(city, "residential", 3, "a", skipped)
+        self.assertEqual([1, 2], [item["blockId"] for item in zoned])
+        self.assertEqual([{"zone": "ResidentialLow", "blockId": 1},
+                          {"zone": "ResidentialLow", "blockId": 2, "vacantCellsOnly": True}],
+                         [call.args[2] for call in run.call_args_list])
+        self.assertEqual([3], skipped)  # held for what stands on it: not proposed again
+
     def test_no_new_land_while_cash_is_short(self):
         self.assertFalse(self.grow(zoned_ok=False, hold_land="waitingForCash"))
 
@@ -1894,6 +1909,21 @@ class CargoGoneTests(unittest.TestCase):
             self.assertIsNone(state["built"])
             self.assertEqual([917], [item["buildingId"] for item in state["gone"]])
             self.assertEqual("noEvidence", report["reason"])
+
+    def test_the_track_a_terminal_that_is_gone_laid_is_removed_once(self):
+        state = {"built": {"buildingId": 46627, "links": [5]},
+                 "gone": [{"buildingId": 917, "links": [1, 2, 5]}, {"buildingId": 3}]}
+        # the railway (9) at node 20, the gone terminal's run 2 then 1 to its dead end at node 22;
+        # the standing terminal's piece 5 joins the railway elsewhere
+        rail = [{"id": 9, "startNodeId": 19, "endNodeId": 20}, {"id": 2, "startNodeId": 20, "endNodeId": 21},
+                {"id": 1, "startNodeId": 21, "endNodeId": 22}, {"id": 5, "startNodeId": 19, "endNodeId": 23}]
+        with mock.patch.object(cargo, "_rail_segments", return_value=rail),                 mock.patch.object(cargo.protocol, "run", return_value={"ok": True}) as run:
+            done = cargo.clear_gone_track(state, "t")
+            # from the dead end inward, and not the standing terminal's
+            self.assertEqual([1, 2], [call.args[2]["id"] for call in run.call_args_list])
+            self.assertEqual([{"buildingId": 917, "removed": 2, "remaining": []}], done)
+            self.assertTrue(state["gone"][0]["trackRemoved"])
+            self.assertEqual([], cargo.clear_gone_track(state, "t"))  # once
 
     def test_a_terminal_still_standing_or_unread_is_kept(self):
         for effect in ({"ok": True}, RuntimeError("busy")):

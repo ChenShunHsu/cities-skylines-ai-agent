@@ -220,8 +220,13 @@ def zone_blocks(city: City, use: str, allowance: int, label: str, skipped: list[
             break
         zone = HIGH_ZONE[use] if high and use in HIGH_ZONE and candidate.get("roadPrefab") != "Gravel Road" \
             else LOW_ZONE[use]
+        # a block a service building stands on in part is zoned in its free cells only
+        partial = bool(candidate.get("partial"))
+        if partial and _held(candidate["blockId"], zone, partial):
+            skipped.append(candidate["blockId"])
+            continue
         outcome = protocol.run(f"zone-{use[:3]}-{candidate['blockId']}", "zone_block",
-                               {"zone": zone, "blockId": candidate["blockId"]})
+                               {"zone": zone, "blockId": candidate["blockId"], **({"vacantCellsOnly": True} if partial else {})})
         zoned.append({"blockId": candidate["blockId"], "zone": zone, "ok": outcome["ok"],
                       "regressionOk": outcome["regressionOk"],
                       "gateSkipped": not outcome["ok"] and "skipped by a safety gate" in str(outcome["result"]),
@@ -747,7 +752,8 @@ SURPLUS_PER_WAKE = 8
 # with a shop or two, and only blocks wholly empty were rezoned, one or none a wake)
 SURPLUS_BLOCK_CELLS = 8
 SURPLUS_JOBS = 20  # workplace demand below which surplus shop land takes no offices
-BLOCK_COLUMNS = 4  # a zone block is four cells wide; its masks give each row eight bits
+BLOCK_COLUMNS = land_use.BLOCK_COLUMNS
+vacant_cells = land_use.vacant_cells
 
 
 def rezone_idle_shops(label: str, shop_ids: list[int], high_density: bool = False,
@@ -767,18 +773,6 @@ def rezone_idle_shops(label: str, shop_ids: list[int], high_density: bool = Fals
     near = sorted((min(math.dist((b["center"]["x"], b["center"]["z"]), spot) for spot in spots), b)
                   for b in _empty_commerce())
     return _rezone([item for item in near if item[0] <= REZONE_REACH], REZONE_PER_WAKE, high_density, offices)
-
-
-def vacant_cells(block: dict[str, Any]) -> int:
-    """The block's valid cells no building stands on, from its cell masks (bit row * 8 + column)."""
-    try:
-        valid = int(block.get("validMask") or "0", 16)
-        taken = int(block.get("occupiedMask1") or "0", 16) | int(block.get("occupiedMask2") or "0", 16)
-    except ValueError:
-        return 0
-    free = valid & ~taken
-    return sum(1 for row in range(int(block.get("rows") or 0)) for column in range(BLOCK_COLUMNS)
-               if free >> (row * 8 + column) & 1)
 
 
 def _surplus_commerce() -> list[dict[str, Any]]:

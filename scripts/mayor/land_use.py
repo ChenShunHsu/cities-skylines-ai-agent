@@ -42,6 +42,21 @@ ZONE_USE = {"ResidentialLow": "residential", "ResidentialHigh": "residential", "
             "CommercialHigh": "commercial", "Industrial": "workplace", "Office": "workplace"}
 
 
+BLOCK_COLUMNS = 4  # a zone block is four cells wide; its masks give each row eight bits
+
+
+def vacant_cells(block: dict[str, Any]) -> int:
+    """The block's valid cells no building stands on, from its cell masks (bit row * 8 + column)."""
+    try:
+        valid = int(block.get("validMask") or "0", 16)
+        taken = int(block.get("occupiedMask1") or "0", 16) | int(block.get("occupiedMask2") or "0", 16)
+    except ValueError:
+        return 0
+    free = valid & ~taken
+    return sum(1 for row in range(int(block.get("rows") or 0)) for column in range(BLOCK_COLUMNS)
+               if free >> (row * 8 + column) & 1)
+
+
 def zoned_land(blocks: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """Zoned blocks as {"use", "position", "zone"}: land zoned this wake has nothing built on it
     yet, but homes and industry will grow there (live: homes and industry zoned 210m apart in one

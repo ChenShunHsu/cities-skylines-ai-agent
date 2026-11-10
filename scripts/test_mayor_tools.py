@@ -5347,3 +5347,27 @@ class BypassEntryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZoningProposalTests(unittest.TestCase):
+    def test_a_block_a_building_stands_on_in_part_is_proposed_for_its_free_cells(self):
+        def block(block_id, clear, occupied):
+            return {"blockId": block_id, "fullyUnzoned": True, "occupancyClear": clear, "developmentFrontageSafe": True,
+                    "roadSegmentId": 5, "center": {"x": 0.0, "z": 0.0}, "rows": 4, "validCells": 16,
+                    "validMask": "000000000F0F0F0F", "occupiedMask1": occupied, "occupiedMask2": "0"}
+        blocks = [block(1, True, "0"), block(2, False, "000000000000000F"),  # 12 free cells beside a school
+                  block(3, False, "00000000000F0F0F")]  # 4 free cells: not worth it
+        context = {"growables": [], "polluters": [], "corners": [], "through": set(), "zoned": [], "wells": []}
+
+        def request(method, path, query=None, body=None):
+            return {"blocks": blocks} if path == "/state/zone-blocks" else {"segments": []}
+        with mock.patch.object(MAYOR_TOOLS, "_request", side_effect=request), \
+                mock.patch.object(MAYOR_TOOLS.mayor_network, "road_components", return_value=({5}, set())), \
+                mock.patch.object(MAYOR_TOOLS, "_land_use_context", return_value=context), \
+                mock.patch.object(MAYOR_TOOLS.mayor_land_use, "classify",
+                                  return_value={"allowed": ["residential"], "preferred": "residential", "reason": "r"}):
+            proposal = MAYOR_TOOLS._propose_zoning_blocks({"use": "residential", "limit": 10})
+        found = {item["blockId"]: item for item in proposal["candidates"]}
+        self.assertEqual([1, 2], sorted(found))
+        self.assertNotIn("partial", found[1])
+        self.assertEqual((True, 12), (found[2]["partial"], found[2]["vacantCells"]))

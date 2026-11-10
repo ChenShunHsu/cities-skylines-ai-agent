@@ -4029,6 +4029,9 @@ def _propose_expansion_areas(arguments: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "use": use, "sampleSpacing": round(spacing, 2), "freeSamples": len(free), "areas": results}
 
 
+PARTIAL_BLOCK_CELLS = 8  # free cells that make a block a building stands on in part worth zoning
+
+
 def _propose_zoning_blocks(arguments: dict[str, Any]) -> dict[str, Any]:
     """Unzoned blocks that suit one use, nearest to developed land first (see mayor.land_use).
 
@@ -4041,7 +4044,10 @@ def _propose_zoning_blocks(arguments: dict[str, Any]) -> dict[str, Any]:
     # buildings would grow beside a road that leads nowhere; zone only roads that reach the outside
     reached, _ = mayor_network.road_components(
         _request("GET", "/state/networks", query={"limit": 20000}).get("segments", []))
-    blocks = [block for block in capacity if block.get("fullyUnzoned") and block.get("occupancyClear")
+    # a block a school, park or utility stands on in part keeps its free cells for zoning (live: 79
+    # unzoned blocks held 1,005 free cells beside them while no clear block was left for homes)
+    blocks = [block for block in capacity if block.get("fullyUnzoned")
+              and (block.get("occupancyClear") or mayor_land_use.vacant_cells(block) >= PARTIAL_BLOCK_CELLS)
               and block.get("developmentFrontageSafe")
               and int(block.get("roadSegmentId") or 0) in reached]
     context = _land_use_context()
@@ -4061,6 +4067,7 @@ def _propose_zoning_blocks(arguments: dict[str, Any]) -> dict[str, Any]:
         candidates.append({
             "blockId": block["blockId"], "center": block["center"], "roadPrefab": block.get("roadPrefab"),
             "validCells": block.get("validCells"), "preferred": verdict["preferred"] == use,
+            **({} if block.get("occupancyClear") else {"partial": True, "vacantCells": mayor_land_use.vacant_cells(block)}),
             "reason": verdict["reason"],
             "distanceToDeveloped": round(min((math.dist(point, other) for other in developed), default=0.0), 1),
             "distanceToCenter": round(math.dist(point, center), 1) if center else None})

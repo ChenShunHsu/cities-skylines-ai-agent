@@ -84,6 +84,7 @@ MAX_ATTEMPTS = 3
 # the way changes (live: three tries by the industry failed and none was made for 300 wakes, while
 # NoResources stood at 12-21 buildings; tried again, the lot, lead and ramp down that had failed held)
 ATTEMPT_MEMORY = 40
+GONE_TRACK_TRIES = 3  # wakes the track a terminal that is gone left is tried for removal
 GONE = "Building was not found"
 RETRY_AFTER = 10
 JUDGE_AFTER = 8
@@ -851,6 +852,51 @@ def standing(building_id: int) -> bool | None:
     return True
 
 
+def clear_gone_track(state: dict[str, Any], label: str) -> list[dict[str, Any]]:
+    """Remove the track each terminal that is gone laid (its links, but none the standing terminal
+    uses), GONE_TRACK_TRIES wakes at most: left in the ground it is a dead end under the town that
+    later lines run into (live: the 2.7km tunnel of a terminal removed long before took every depth
+    a metro line tried beside it)."""
+    keep = set((state["built"] or {}).get("links") or [])
+    done = []
+    for record in state.get("gone") or []:
+        if not record.get("links") or record.get("trackRemoved") or record.get("trackTries", 0) >= GONE_TRACK_TRIES:
+            continue
+        own = [link for link in record["links"] if link not in keep]
+        try:
+            rail = {int(s["id"]) for s in _rail_segments()}
+        except (mt.BridgeRequestError, RuntimeError):
+            return done  # nothing read, nothing removed: the next wake tries
+        record["trackTries"] = record.get("trackTries", 0) + 1
+        removed, left = peel(f"{label}-gone-{record['buildingId']}", [link for link in own if link in rail])
+        record["trackRemoved"] = not left
+        done.append({"buildingId": record["buildingId"], "removed": len(removed), "remaining": left})
+    return done
+
+
+def peel(label: str, links: list[int]) -> tuple[list[int], list[int]]:
+    """Remove a run of track from its dead end inward, one piece at a time: a piece of tunnel is
+    refused while track stands at both its ends (live: 11 of a 34-piece tunnel came down in rounds
+    of every piece; the dead-end piece came down at once). What is removed, and what is left."""
+    pieces = {int(s["id"]): s for s in _rail_segments() if int(s["id"]) in set(links)}
+    degree: dict[int, int] = {}
+    for segment in _rail_segments():
+        for key in ("startNodeId", "endNodeId"):
+            degree[int(segment[key])] = degree.get(int(segment[key]), 0) + 1
+    removed = []
+    while True:
+        end = next((identifier for identifier, segment in pieces.items()
+                    if min(degree.get(int(segment["startNodeId"]), 0), degree.get(int(segment["endNodeId"]), 0)) <= 1), None)
+        if end is None or not protocol.run(f"{label}-{end}", "bulldoze_entity",
+                                           {"entityType": "netSegment", "id": end})["ok"]:
+            break
+        for key in ("startNodeId", "endNodeId"):
+            degree[int(pieces[end][key])] -= 1
+        removed.append(end)
+        del pieces[end]
+    return removed, sorted(pieces)
+
+
 def step(city: City, label: str, wake: dict[str, Any], traffic: dict[str, Any]) -> dict[str, Any]:
     state = {**json.loads(json.dumps(DEFAULT_STATE)), **city.load_state("cargo-rail", {})}  # fresh lists
     state["wake"] += 1
@@ -864,6 +910,9 @@ def step(city: City, label: str, wake: dict[str, Any], traffic: dict[str, Any]) 
             state.setdefault("gone", []).append({**state["built"], "goneAt": state["wake"]})
             state["built"] = None
             report["gone"] = state["gone"][-1]["buildingId"]
+        cleared = clear_gone_track(state, label)
+        if cleared:
+            report["goneTrack"] = cleared
         if state["built"]:
             verdict = judge(state, seen)
             report.update({"built": state["built"]["buildingId"], **({"judged": verdict} if verdict else {})})

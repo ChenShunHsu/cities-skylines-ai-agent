@@ -24,7 +24,9 @@ accepted and is the default). Each wake runs as its own process
    - allowance: the pacing of `inspect_growth_capacity`, doubled when last wake's blocks were
      absorbed (up to 12), and a few blocks when vacancy that never builds holds the pacing back;
    - blocks: `propose_zoning_blocks` (neighbourhood use within distance rules; the city plan overrides);
-     a block whose zoning fails is never proposed again;
+     a block a school, park or utility stands on in part is proposed too when 8 or more of its
+     cells are free, and only those cells are zoned; a block whose zoning fails is never proposed
+     again;
    - workers short (unemployment at or below 3% while both workplace and residential demand stay
      high): homes are zoned each wake and no new job zoning, since new jobs would stand short of
      workers too, and homes may open new land below the usual expansion demand;
@@ -110,7 +112,8 @@ accepted and is the default). Each wake runs as its own process
    when a lot fits, else by the industry with a tunnel to the railway (`loop/cargo_remote.py`),
    whose ramp up into the railway is laid in two pieces; a failed try counts against the three
    allowed for 40 wakes only, as the town around the way changes, and a terminal that no longer
-   stands is let go, so the industry may get one again where it needs it.
+   stands is let go, so the industry may get one again where it needs it, and the track it laid
+   is removed from its dead end inward, so no later line runs into it underground.
 
 Every change runs under the protocol in `protocol.py`: checkpoint, regression baseline, change,
 settle, verify. The checkpoint save is taken once per phase of a wake (utilities, growth,
