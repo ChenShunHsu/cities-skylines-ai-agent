@@ -1044,8 +1044,8 @@ class OpenDistrictTests(unittest.TestCase):
         self.assertFalse(self.grow(zoned_ok=False, hold_land="waitingForCash"))
 
     def test_homes_open_new_land_below_the_expansion_demand_while_workers_are_short(self):
-        def grow(unemployment):
-            categories = {use: {"demand": 39, "developableVacantCells": 139} for use in growth.USES}
+        def grow(unemployment, demand=39, found=()):
+            categories = {use: {"demand": demand, "developableVacantCells": 139} for use in growth.USES}
             categories["workplace"]["demand"] = 52
             with tempfile.TemporaryDirectory() as root:
                 city = city_module.City({"instanceId": "t"}, Path(root))
@@ -1055,13 +1055,17 @@ class OpenDistrictTests(unittest.TestCase):
                                           return_value={"employment": {"unemployment": unemployment}}), \
                         mock.patch.object(growth, "allowances",
                                           return_value={"residential": 12, "commercial": 0, "workplace": 0}), \
-                        mock.patch.object(growth, "zone_blocks", return_value=[]), \
+                        mock.patch.object(growth, "zone_blocks", return_value=list(found)), \
                         mock.patch.object(growth, "rezone_surplus_commerce", return_value=None), \
                         mock.patch.object(growth, "expand", return_value={"ok": True}) as expand:
                     growth.grow(city, "a")
             return [call[0][1] for call in expand.call_args_list]
         self.assertEqual(["residential"], grow(3))
-        self.assertEqual([], grow(5))  # workers are not short: the demand must reach EXPAND_DEMAND
+        # workers are not short: homes with no block left open land from ABSORB_DEMAND (live: 34)...
+        self.assertEqual(["residential"], grow(5, 34))
+        self.assertEqual([], grow(5, growth.ABSORB_DEMAND - 1))
+        # ...but while a block or two is still found, only from EXPAND_DEMAND
+        self.assertEqual([], grow(5, 34, [{"blockId": 1, "ok": True}]))
 
 
 class ContinuationTests(unittest.TestCase):

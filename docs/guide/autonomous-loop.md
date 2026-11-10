@@ -30,6 +30,8 @@ accepted and is the default). Each wake runs as its own process
    - workers short (unemployment at or below 3% while both workplace and residential demand stay
      high): homes are zoned each wake and no new job zoning, since new jobs would stand short of
      workers too, and homes may open new land below the usual expansion demand;
+   - homes with no block left to zone at all open new land from residential demand 30 rather
+     than the usual 40: the land they were zoned on is being built on;
    - jobs short (unemployment at 6% or more while workplace demand stays high): enough workplace
      blocks are kept ready to build on, three for each point of unemployment from 6% (at most
      12), counting the empty workplace land already zoned; offices go first when office land

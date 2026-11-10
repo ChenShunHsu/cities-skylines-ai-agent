@@ -12,7 +12,8 @@ For each use (residential, commercial, workplace):
   or before the unlock, low density.
 - no block left and demand at least DENSIFY_DEMAND: built-up low-density blocks become high density,
   centre first.
-- still none and demand at least EXPAND_DEMAND: new land. The best area from
+- still none and demand at least EXPAND_DEMAND (homes: ABSORB_DEMAND once no block is left at all, or
+  while workers are short): new land. The best area from
   propose_expansion_areas reachable without crossing gets an access road and a fishbone, a few
   collector steps a wake, until the land ends. Every clear way in is tried in turn (homes in the
   way are cleared; ground that will not hold a road at an existing junction is skipped). Land
@@ -1020,10 +1021,17 @@ def grow(city: City, label: str, high_density: bool = False, hold_land: str | No
     # while workers are short, homes need new land at the demand they are zoned at (live: the town
     # shrank by 2.5% over fifteen wakes, unemployment 3%, twelve home blocks allowed and none left to
     # zone at residential demand 39, so no district was opened)
+    # and homes with no block left to zone at all open new land from ABSORB_DEMAND (live: residential
+    # demand 32-38 for twenty wakes, ten home blocks allowed as the last were built on, no block left
+    # and no district opened while three open areas of 1.5-2.3 km2 on the tiles owned stood unused)
     workers_short = labour_short(categories, unemployment)
+
+    def homes_wanted(use: str) -> bool:
+        return use == "residential" and (workers_short or use in report["exhausted"]
+                                         and (categories[use].get("demand") or 0) >= ABSORB_DEMAND)
     wanting = sorted((use for use in report["short"]
                       if use in EXPAND_USES and ((categories[use].get("demand") or 0) >= EXPAND_DEMAND
-                                                 or use == "residential" and workers_short)),
+                                                 or homes_wanted(use))),
                      key=lambda use: -(categories[use].get("demand") or 0))
     if outside and outside.get("ok") is False:
         report["expansion"] = {"use": "residential", **outside}  # no link to the outside: nothing can grow
