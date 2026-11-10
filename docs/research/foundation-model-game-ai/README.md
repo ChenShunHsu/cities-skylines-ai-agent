@@ -106,7 +106,7 @@ agent 可以提出「興建道路可能解除住宅 frontage 瓶頸」；但道�
 
 ## 5. agent 每次 wake 的套用方式
 
-仍以根目錄 [SKILL.md](../../../SKILL.md) 為執行契約；
+仍以根目錄 [SKILL.md](https://github.com/ChenShunHsu/cities-skylines-ai-agent/blob/main/SKILL.md) 為執行契約；
 本文件不放寬任何 hard gate。
 
 1. **Observe**：暫停、核對 `instanceId`、progression、memory scope 與 compact snapshot。
